@@ -1,0 +1,57 @@
+# macOS / local clutter
+.DS_Store
+**/.DS_Store
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Large local DEM inputs
+DEM_fabdem.tif
+*.tif
+*.tiff
+*.vrt
+*.ovr
+*.aux.xml
+
+# Vector/geospatial data products
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.gpkg
+*.geojson
+*.kml
+*.kmz
+
+# Generated model outputs and diagnostics
+Outputs/
+
+# Downloaded/processed Lin et al. 2020 data artifacts
+Data/Lin2020_bankfull_width/raw/
+Data/Lin2020_bankfull_width/processed/
+Data/Lin2020_bankfull_width/calibration/
+Data/Lin2020_bankfull_width/calibration/*
+
+# Keep lightweight documentation in data folders
+!Data/
+!Data/Lin2020_bankfull_width/
+!Data/Lin2020_bankfull_width/README.md
+!Data/Lin2020_bankfull_width/calibration/
+!Data/Lin2020_bankfull_width/calibration/README.md
+
+# Archives and temporary pack/download files
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.tmp
+tmp_*

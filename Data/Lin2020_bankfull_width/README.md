@@ -1,0 +1,53 @@
+# Lin et al. 2020 Bankfull Geometry
+
+Source: https://zenodo.org/records/3552776
+
+This folder stores the project-local copy and processed subset of the Lin et al. global reach-level bankfull-width dataset.
+The Zenodo shapefile does not include a `.prj` file, but its bounds are global longitude/latitude degrees, so the prep script assigns EPSG:4326 before projecting to the DEM grid CRS.
+
+Rebuild with:
+
+```bash
+cd /Users/mngomes/Documents/GitHub/DEM_Processing
+PYTHONPATH=src python3 -m dem_processing.prepare_lin2020_bankfull_geometry --download
+```
+
+The default model grid is `Outputs/dem/DEM_resampled_1000m.tif`, and the
+default overlap mask is `Outputs/d4/D4_idx_facc.tif`.
+
+## Raw Files
+
+`raw/` contains the downloaded `rivers_ge30m` shapefile parts:
+
+- `raw/rivers_ge30m.cpg` (10 bytes)
+- `raw/rivers_ge30m.shx` (5,790,676 bytes)
+- `raw/rivers_ge30m.dbf` (361,187,884 bytes)
+- `raw/rivers_ge30m.shp` (1,421,971,140 bytes)
+
+## Processed Files
+
+- `processed/lin2020_dem_domain_width_depth.gpkg`: DEM-domain reaches with Manning Q2 depth.
+- `processed/lin2020_width_depth_summary.csv`: field statistics and processing counts.
+- `processed/lin2020_processing_metadata.json`: source, grid, and parameter metadata.
+- `processed/diagnostic_lin2020_width_depth.png`: width/depth/H_abg diagnostics and current D4 overlap.
+
+Raster products on the model grid:
+
+- `processed/Lin2020_width_m_1000m.tif`
+- `processed/Lin2020_depth_Q2_m_1000m.tif`
+- `processed/Lin2020_Q2_m3s_1000m.tif`
+- `processed/Lin2020_slope_used_1000m.tif`
+- `processed/Lin2020_H_abg_m_1000m.tif`
+- `processed/Lin2020_mask_1000m.tif`
+
+## Manning Depth Calculation
+
+Depth is solved from the rectangular Manning equation:
+
+```text
+Q2 = (1/n) * A * R^(2/3) * S^(1/2)
+A = width_m * depth
+R = A / (width_m + 2 * depth)
+```
+
+Current settings: `n=0.035`, `min_slope=1e-05`, `max_slope=0.05`, `depth_cap_m=60.0`.

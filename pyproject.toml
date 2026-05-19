@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dem-processing"
+version = "0.1.0"
+description = "HydroPol2D-style FABDEM conditioning and Lin2020 hydraulic geometry calibration."
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+dem-condition-1000m = "dem_processing.run_conditioning_1000m:main"
+dem-condition = "dem_processing.condition_dem:main"
+dem-prepare-lin2020 = "dem_processing.prepare_lin2020_bankfull_geometry:main"
+dem-calibrate-hydraulics = "dem_processing.calibrate_spatial_hydraulic_geometry:main"
