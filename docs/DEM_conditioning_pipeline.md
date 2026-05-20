@@ -11,6 +11,9 @@ src/dem_processing/condition_dem.py
 src/dem_processing/run_conditioning_1000m.py
 src/dem_processing/prepare_lin2020_bankfull_geometry.py
 src/dem_processing/calibrate_spatial_hydraulic_geometry.py
+src/dem_processing/preflight.py
+src/dem_processing/config.py
+src/dem_processing/qa.py
 src/dem_processing/paths.py
 ```
 
@@ -38,6 +41,7 @@ where `A_D4` is the FABDEM-D4 upstream area in km2.
 DEM/model resolution = 1000 m
 river carving threshold = 100 km2
 coefficient calibration threshold = 5000 km2
+calibration fit area source = matched FABDEM-D4 area
 river geometry mode = spatial_coefficients_or_power_law
 slope artifact percentile = 95
 carve mode = wide
@@ -82,9 +86,13 @@ The main audit layers are:
 Outputs/dem/DEM_modification_final_minus_cleaned.tif
 Outputs/d4/D4_H_abg_m.tif
 Outputs/d4/D4_idx_facc.tif
+Outputs/d4/D4_power_law_fallback_used.tif
 Outputs/diagnostics/diagnostic_d4_river_extraction.png
+Outputs/diagnostics/diagnostic_d4_geometry_source_map.png
 Outputs/diagnostics/diagnostic_final_modifications.png
 Outputs/reports/D4_HydroPol2D_creek_reduction_summary.csv
+Outputs/reports/qa_scorecard.csv
+Outputs/reports/run_manifest.json
 ```
 
 ## Clean Rebuild
@@ -92,29 +100,14 @@ Outputs/reports/D4_HydroPol2D_creek_reduction_summary.csv
 From the repository root:
 
 ```bash
-PYTHONPATH=src python3 -m dem_processing.condition_dem \
-  --dem /Users/mngomes/Documents/GitHub/DEM_Processing/DEM_fabdem.tif \
-  --out-dir /Users/mngomes/Documents/GitHub/DEM_Processing/Outputs \
-  --resample-dem \
-  --target-resolution-m 1000 \
-  --resampling-method bilinear \
-  --auto-rivers-d4 \
-  --min-area 100 \
-  --river-geometry-source power_law \
-  --carve-mode wide \
-  --channel-cell-width-m 1000 \
-  --river-width-cap-m 10000 \
-  --river-depth-cap-m 30 \
-  --max-H-abg-m 50 \
-  --max-nodata-fill-pixels 10 \
-  --slope-percentile 95 \
-  --smooth-filter-cells 5 \
-  --protect-stream-buffer-m 2000 \
-  --breach-dist-cells 10000 \
-  --breach-flat-increment 0.01 \
-  --fill-max-depth-m 0.25
+PYTHONPATH=src python3 -m dem_processing.preflight \
+  --config configs/india_1000m_spatial.json \
+  --require-lin \
+  --require-spatial-coefficients
 
+PYTHONPATH=src python3 -m dem_processing.condition_dem \
+  --config configs/india_1000m_powerlaw_first_pass.json
 PYTHONPATH=src python3 -m dem_processing.prepare_lin2020_bankfull_geometry --download
-PYTHONPATH=src python3 -m dem_processing.calibrate_spatial_hydraulic_geometry --selected-threshold-km2 5000
-PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m
+PYTHONPATH=src python3 -m dem_processing.calibrate_spatial_hydraulic_geometry --selected-threshold-km2 5000 --fit-area-source d4
+PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --config configs/india_1000m_spatial.json
 ```

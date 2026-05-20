@@ -15,6 +15,10 @@ REPORT_FILES = {
     "modification_summary.csv",
     "D4_HydroPol2D_creek_reduction_summary.csv",
     "D4_river_connectivity_summary.csv",
+    "run_manifest.json",
+    "qa_scorecard.csv",
+    "qa_scorecard.json",
+    "qa_scorecard.md",
 }
 
 
@@ -41,6 +45,11 @@ def themed_output_path(out_dir: Path | str, filename: str) -> Path:
     """Build an output path under a themed subfolder."""
     root = Path(out_dir).expanduser().resolve()
     return root / output_theme(filename) / filename
+
+
+def output_path(out_dir: Path | str, filename: str) -> Path:
+    """Alias for themed_output_path used by reporting utilities."""
+    return themed_output_path(out_dir, filename)
 
 
 def ensure_output_layout(out_dir: Path | str) -> None:

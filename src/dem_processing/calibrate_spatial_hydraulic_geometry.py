@@ -304,6 +304,23 @@ def add_quality_flags(
     return out
 
 
+def add_fit_area(samples: pd.DataFrame, fit_area_source: str) -> pd.DataFrame:
+    """Choose the drainage-area predictor used in width/depth power-law fitting."""
+    out = samples.copy()
+    if fit_area_source == "lin":
+        out["fit_area_km2"] = out["lin_area_km2"]
+    elif fit_area_source == "d4":
+        out["fit_area_km2"] = out["nearest_d4_area_km2"]
+    else:
+        raise ValueError("fit_area_source must be either 'lin' or 'd4'.")
+    out["calibration_valid"] = (
+        out["calibration_valid"]
+        & np.isfinite(out["fit_area_km2"])
+        & (out["fit_area_km2"] > 0)
+    )
+    return out
+
+
 def deterministic_train_mask(samples: pd.DataFrame) -> np.ndarray:
     comid = samples["COMID"].fillna(0).astype("int64").to_numpy()
     return (np.abs(comid) % 5) != 0
@@ -396,7 +413,7 @@ def fit_zone_coefficients(
 ) -> Tuple[pd.DataFrame, Dict[str, PowerLawFit]]:
     train = samples["calibration_valid"].to_numpy() & train_mask
     global_width = robust_power_law_fit(
-        samples.loc[train, "lin_area_km2"].to_numpy(),
+        samples.loc[train, "fit_area_km2"].to_numpy(),
         samples.loc[train, "lin_width_m"].to_numpy(),
         min_samples=max(min_samples, 50),
         min_log10_area_range=min_log10_area_range,
@@ -405,7 +422,7 @@ def fit_zone_coefficients(
         min_abs_log_residual=min_abs_log_residual,
     )
     global_depth = robust_power_law_fit(
-        samples.loc[train, "lin_area_km2"].to_numpy(),
+        samples.loc[train, "fit_area_km2"].to_numpy(),
         samples.loc[train, "lin_depth_m"].to_numpy(),
         min_samples=max(min_samples, 50),
         min_log10_area_range=min_log10_area_range,
@@ -428,7 +445,7 @@ def fit_zone_coefficients(
         if zone_train is None:
             zone_train = train_good.iloc[0:0]
         width_fit = robust_power_law_fit(
-            zone_train["lin_area_km2"].to_numpy(),
+            zone_train["fit_area_km2"].to_numpy(),
             zone_train["lin_width_m"].to_numpy(),
             min_samples=min_samples,
             min_log10_area_range=min_log10_area_range,
@@ -437,7 +454,7 @@ def fit_zone_coefficients(
             min_abs_log_residual=min_abs_log_residual,
         )
         depth_fit = robust_power_law_fit(
-            zone_train["lin_area_km2"].to_numpy(),
+            zone_train["fit_area_km2"].to_numpy(),
             zone_train["lin_depth_m"].to_numpy(),
             min_samples=min_samples,
             min_log10_area_range=min_log10_area_range,
@@ -501,8 +518,8 @@ def evaluate_coefficients(
         fallback = getattr(globals_[fit_key], attr)
         joined[col] = joined[col].fillna(fallback)
 
-    pred_width = predict_power_law(joined["lin_area_km2"].to_numpy(), joined["beta_1"].to_numpy(), joined["beta_2"].to_numpy())
-    pred_depth = predict_power_law(joined["lin_area_km2"].to_numpy(), joined["alfa_1"].to_numpy(), joined["alfa_2"].to_numpy())
+    pred_width = predict_power_law(joined["fit_area_km2"].to_numpy(), joined["beta_1"].to_numpy(), joined["beta_2"].to_numpy())
+    pred_depth = predict_power_law(joined["fit_area_km2"].to_numpy(), joined["alfa_1"].to_numpy(), joined["alfa_2"].to_numpy())
     wm = log_metrics(joined["lin_width_m"].to_numpy(), pred_width)
     dm = log_metrics(joined["lin_depth_m"].to_numpy(), pred_depth)
     return {
@@ -637,33 +654,35 @@ def plot_selected_diagnostics(
     samples: pd.DataFrame,
     globals_: Dict[str, PowerLawFit],
     maps: Dict[str, np.ndarray],
+    fit_area_source: str,
 ) -> None:
     if plt is None:
         return
     good = samples[samples["calibration_valid"]].copy()
     tag = f"{threshold_km2:g}km2".replace(".", "p")
+    area_label = "Lin area" if fit_area_source == "lin" else "matched FABDEM-D4 area"
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 11), constrained_layout=True)
     sample = good.sample(min(len(good), 8000), random_state=42) if len(good) else good
     x = np.linspace(
-        max(1.0, float(np.nanpercentile(good["lin_area_km2"], 1))) if len(good) else 1.0,
-        float(np.nanpercentile(good["lin_area_km2"], 99)) if len(good) else 1000.0,
+        max(1.0, float(np.nanpercentile(good["fit_area_km2"], 1))) if len(good) else 1.0,
+        float(np.nanpercentile(good["fit_area_km2"], 99)) if len(good) else 1000.0,
         200,
     )
-    axes[0, 0].scatter(sample["lin_area_km2"], sample["lin_width_m"], s=4, alpha=0.25)
+    axes[0, 0].scatter(sample["fit_area_km2"], sample["lin_width_m"], s=4, alpha=0.25)
     axes[0, 0].plot(x, predict_power_law(x, globals_["width"].coefficient, globals_["width"].exponent), color="red")
     axes[0, 0].set_xscale("log")
     axes[0, 0].set_yscale("log")
-    axes[0, 0].set_title("Lin width samples and global fit")
-    axes[0, 0].set_xlabel("Lin area (km2)")
+    axes[0, 0].set_title(f"Lin width samples and global fit ({fit_area_source})")
+    axes[0, 0].set_xlabel(f"{area_label} (km2)")
     axes[0, 0].set_ylabel("width_m")
 
-    axes[0, 1].scatter(sample["lin_area_km2"], sample["lin_depth_m"], s=4, alpha=0.25)
+    axes[0, 1].scatter(sample["fit_area_km2"], sample["lin_depth_m"], s=4, alpha=0.25)
     axes[0, 1].plot(x, predict_power_law(x, globals_["depth"].coefficient, globals_["depth"].exponent), color="red")
     axes[0, 1].set_xscale("log")
     axes[0, 1].set_yscale("log")
-    axes[0, 1].set_title("Manning depth samples and global fit")
-    axes[0, 1].set_xlabel("Lin area (km2)")
+    axes[0, 1].set_title(f"Manning depth samples and global fit ({fit_area_source})")
+    axes[0, 1].set_xlabel(f"{area_label} (km2)")
     axes[0, 1].set_ylabel("depth_Q2_m")
 
     im = axes[1, 0].imshow(maps["sample_count"], cmap="viridis")
@@ -814,6 +833,7 @@ def run_for_threshold(
         max_area_ratio=args.max_area_ratio,
         min_boundary_distance_m=args.min_boundary_distance_m,
     )
+    samples = add_fit_area(samples, args.fit_area_source)
 
     train_mask = deterministic_train_mask(samples)
     zone_train_df, train_globals = fit_zone_coefficients(
@@ -832,6 +852,7 @@ def run_for_threshold(
 
     row = {
         **zone_stats,
+        "fit_area_source": args.fit_area_source,
         "lin_samples_total": int(len(samples)),
         "lin_samples_calibration_valid": int(samples["calibration_valid"].sum()),
         "lin_samples_distance_rejected": int((samples["basic_valid"] & ~samples["passes_distance"]).sum()),
@@ -912,6 +933,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--selected-threshold-km2", type=float, default=1000.0)
     parser.add_argument("--thresholds-km2", default="500,1000,2500,5000")
+    parser.add_argument(
+        "--fit-area-source",
+        choices=["lin", "d4"],
+        default="d4",
+        help="Drainage-area predictor used for fitting. 'd4' fits Lin width/depth against matched FABDEM-D4 area.",
+    )
     parser.add_argument("--match-network-threshold-km2", type=float, default=25.0)
     parser.add_argument("--application-min-area-km2", type=float, default=100.0)
     parser.add_argument("--max-nearest-distance-m", type=float, default=5000.0)
@@ -957,7 +984,7 @@ def main() -> None:
 
     if selected_outputs is not None:
         samples, zone_df, globals_, maps = selected_outputs
-        plot_selected_diagnostics(args.out_dir, args.selected_threshold_km2, zone_df, samples, globals_, maps)
+        plot_selected_diagnostics(args.out_dir, args.selected_threshold_km2, zone_df, samples, globals_, maps, args.fit_area_source)
 
     readme = args.out_dir / "README.md"
     tag = f"{args.selected_threshold_km2:g}km2".replace(".", "p")
@@ -970,6 +997,7 @@ def main() -> None:
                 "",
                 f"Selected threshold: `{args.selected_threshold_km2:g} km2`",
                 f"Thresholds tested: `{', '.join(str(t) for t in thresholds)} km2`",
+                f"Fit area source: `{args.fit_area_source}`",
                 "",
                 "The coefficient rasters can be used by the DEM-conditioning workflow with:",
                 "",

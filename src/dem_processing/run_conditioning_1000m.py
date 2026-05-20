@@ -42,8 +42,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 try:
+    from .config import config_to_cli_args, load_config_file
     from .paths import PROJECT_ROOT
 except ImportError:  # Allows direct execution from the source directory.
+    from config import config_to_cli_args, load_config_file
     from paths import PROJECT_ROOT
 
 
@@ -265,38 +267,32 @@ def install_missing_packages() -> None:
 # RUNNER UTILITIES
 # =============================================================================
 
-def config_to_cli_args(config: Dict[str, Any]) -> List[str]:
-    args: List[str] = []
-    for key, value in config.items():
-        flag = f"--{key}"
-        if value is True:
-            args.append(flag)
-        elif value is False or value is None:
-            continue
-        else:
-            args.extend([flag, str(value)])
-    return args
+def merge_config_file(config_path: Path | None) -> Dict[str, Any]:
+    config = dict(CONFIG)
+    loaded = load_config_file(config_path)
+    config.update({key.replace("_", "-"): value for key, value in loaded.items()})
+    return config
 
 
-def validate_paths() -> None:
-    dem_path = Path(str(CONFIG["dem"])).expanduser()
+def validate_paths(config: Dict[str, Any]) -> None:
+    dem_path = Path(str(config["dem"])).expanduser()
     if not dem_path.exists():
         raise FileNotFoundError(f"Input DEM not found:\n{dem_path}")
 
-    out_dir = Path(str(CONFIG["out-dir"])).expanduser()
+    out_dir = Path(str(config["out-dir"])).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
 
 
-def print_summary(cli_args: List[str]) -> None:
+def print_summary(config: Dict[str, Any], cli_args: List[str]) -> None:
     print("\n" + "=" * 78)
     print("HydroPol2D DEM conditioning run")
     print("=" * 78)
     print(f"Python executable : {sys.executable}")
     print("Main module       : dem_processing.condition_dem")
-    print(f"Input DEM         : {CONFIG['dem']}")
-    print(f"Output directory  : {CONFIG['out-dir']}")
-    print(f"Target resolution : {CONFIG.get('target-resolution-m')} m")
-    print(f"D4 min area       : {CONFIG.get('min-area')} km2")
+    print(f"Input DEM         : {config['dem']}")
+    print(f"Output directory  : {config['out-dir']}")
+    print(f"Target resolution : {config.get('target-resolution-m')} m")
+    print(f"D4 min area       : {config.get('min-area')} km2")
     print("=" * 78)
     print("Arguments:")
 
@@ -311,11 +307,12 @@ def print_summary(cli_args: List[str]) -> None:
     print("=" * 78 + "\n")
 
 
-def run_workflow(dry_run: bool = False) -> None:
-    validate_paths()
+def run_workflow(dry_run: bool = False, config_path: Path | None = None) -> None:
+    config = merge_config_file(config_path)
+    validate_paths(config)
 
-    cli_args = config_to_cli_args(CONFIG)
-    print_summary(cli_args)
+    cli_args = config_to_cli_args(config)
+    print_summary(config, cli_args)
 
     cmd = [sys.executable, "-m", "dem_processing.condition_dem", *cli_args]
     if dry_run:
@@ -337,6 +334,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--install-deps", action="store_true", help="Install missing Python packages first.")
     parser.add_argument("--setup-only", action="store_true", help="Only install/check dependencies; do not run.")
     parser.add_argument("--dry-run", action="store_true", help="Print the command but do not execute it.")
+    parser.add_argument("--config", type=Path, default=None, help="Optional JSON/TOML config file.")
     return parser.parse_args()
 
 
@@ -359,7 +357,7 @@ def main() -> None:
         print("[OK] Setup check completed. Workflow was not run.")
         return
 
-    run_workflow(dry_run=args.dry_run)
+    run_workflow(dry_run=args.dry_run, config_path=args.config)
 
 
 if __name__ == "__main__":

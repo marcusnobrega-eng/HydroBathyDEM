@@ -162,9 +162,13 @@ except Exception:
     whitebox = None
 
 try:
+    from .config import explicit_cli_flags, load_config_file
     from .paths import PROJECT_ROOT, ensure_output_layout, themed_output_path
+    from .qa import build_qa_scorecard, write_run_manifest
 except ImportError:  # Allows direct execution from the source directory.
+    from config import explicit_cli_flags, load_config_file
     from paths import PROJECT_ROOT, ensure_output_layout, themed_output_path
+    from qa import build_qa_scorecard, write_run_manifest
 
 
 # =============================================================================
@@ -778,6 +782,9 @@ src/dem_processing/condition_dem.py
 src/dem_processing/run_conditioning_1000m.py
 src/dem_processing/prepare_lin2020_bankfull_geometry.py
 src/dem_processing/calibrate_spatial_hydraulic_geometry.py
+src/dem_processing/preflight.py
+src/dem_processing/config.py
+src/dem_processing/qa.py
 ```
 
 ## Output Layout
@@ -797,10 +804,14 @@ Outputs/dem/DEM_modification_final_minus_cleaned.tif
 Outputs/d4/D4_idx_facc.tif
 Outputs/d4/D4_H_abg_m.tif
 Outputs/d4/D4_Wshed_Properties_fac_area_km2.tif
+Outputs/d4/D4_power_law_fallback_used.tif
 Outputs/diagnostics/diagnostic_d4_river_extraction.png
+Outputs/diagnostics/diagnostic_d4_geometry_source_map.png
 Outputs/diagnostics/diagnostic_final_modifications.png
 Outputs/reports/D4_HydroPol2D_creek_reduction_summary.csv
 Outputs/reports/modification_summary.csv
+Outputs/reports/qa_scorecard.csv
+Outputs/reports/run_manifest.json
 ```
 
 ## Current Pipeline Philosophy
@@ -821,10 +832,11 @@ base HydroPol2D power law only for coefficient nodata holes
 
 ```bash
 PYTHONPATH=src python3 -m dem_processing.condition_dem --help
+PYTHONPATH=src python3 -m dem_processing.preflight --config configs/india_1000m_spatial.json --require-lin --require-spatial-coefficients
 PYTHONPATH=src python3 -m dem_processing.prepare_lin2020_bankfull_geometry --download
-PYTHONPATH=src python3 -m dem_processing.calibrate_spatial_hydraulic_geometry --selected-threshold-km2 5000
-PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --dry-run
-PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m
+PYTHONPATH=src python3 -m dem_processing.calibrate_spatial_hydraulic_geometry --selected-threshold-km2 5000 --fit-area-source d4
+PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --config configs/india_1000m_spatial.json --dry-run
+PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --config configs/india_1000m_spatial.json
 ```
 """
 
@@ -838,6 +850,7 @@ class DEMConditioningConfig:
     dem: str = DEFAULT_DEM_PATH
     out_dir: Optional[str] = None
     original_dem: Optional[str] = None
+    config_path: Optional[str] = None
 
     # Optional first step: resample input DEM to model/grid resolution
     resample_dem: bool = False
@@ -1848,6 +1861,13 @@ def automatic_d4_hydraulic_channel_carving(
             profile,
             nodata=-9999.0,
         )
+    write_raster(
+        output_path(out_dir, "D4_power_law_fallback_used.tif"),
+        fallback_used.astype("float32"),
+        profile,
+        nodata=-9999.0,
+    )
+    if cfg.river_geometry_source in {"external", "external_or_power_law"}:
         write_raster(
             output_path(out_dir, "D4_external_geometry_used.tif"),
             external_used.astype("float32"),
@@ -2618,6 +2638,28 @@ def make_d4_river_diagnostics(out_dir: Path) -> None:
     print(f"[SAVED] {summary_path}")
     print(component_summary.to_string(index=False))
 
+    fallback_path = output_path(out_dir, "D4_power_law_fallback_used.tif")
+    spatial_path = output_path(out_dir, "D4_spatial_coefficients_used.tif")
+    if fallback_path.exists():
+        fallback, _ = _plot_ready_array(fallback_path)
+        spatial = None
+        if spatial_path.exists():
+            spatial, _ = _plot_ready_array(spatial_path)
+        fig, axes = plt.subplots(1, 2 if spatial is not None else 1, figsize=(14, 6), constrained_layout=True)
+        if not isinstance(axes, np.ndarray):
+            axes = np.array([axes])
+        axes[0].imshow(np.where(fallback > 0, 1.0, np.nan), cmap="Reds", vmin=0, vmax=1)
+        axes[0].set_title("Power-law fallback cells")
+        axes[0].axis("off")
+        if spatial is not None and len(axes) > 1:
+            axes[1].imshow(np.where(spatial > 0, 1.0, np.nan), cmap="Greens", vmin=0, vmax=1)
+            axes[1].set_title("Spatial coefficient cells")
+            axes[1].axis("off")
+        out_png = output_path(out_dir, "diagnostic_d4_geometry_source_map.png")
+        fig.savefig(out_png, dpi=180)
+        plt.close(fig)
+        print(f"[SAVED] {out_png}")
+
     river = river_mask > 0
     fac_v = fac[river & np.isfinite(fac) & (fac > 0)]
     width_v = width[river & np.isfinite(width) & (width > 0)]
@@ -2844,6 +2886,12 @@ def run_pipeline(cfg: DEMConditioningConfig) -> None:
         make_quicklook_plot(cleaned, Path(final), delta_path, out_dir)
         make_diagnostic_plot_pack(delta_path, out_dir)
 
+    qa_df = build_qa_scorecard(out_dir)
+    print_header("QA scorecard")
+    print(qa_df.to_string(index=False))
+    manifest_path = write_run_manifest(out_dir, cfg, config_path=Path(cfg.config_path) if cfg.config_path else None)
+    print(f"[SAVED] {manifest_path}")
+
     print_header("Done")
     print(f"Final conditioned DEM: {final}")
     print("Inspect the delta DEM, slope rasters, flow accumulation, no-flow cells, and sinks before using this in a flood model.")
@@ -2888,6 +2936,8 @@ Print full documentation:
 
     p.add_argument("--documentation", "--print-documentation", action="store_true",
                    help="Print the full documentation/manual and exit.")
+    p.add_argument("--config", type=Path, default=None,
+                   help="Optional JSON/TOML config file. Explicit CLI flags override config values.")
     p.add_argument("--dem", default=DEFAULT_DEM_PATH,
                    help=f"Input DEM GeoTIFF. Default: {DEFAULT_DEM_PATH}")
     p.add_argument("--out-dir", default=None,
@@ -2993,59 +3043,79 @@ Print full documentation:
         print(CURRENT_DOCUMENTATION)
         raise SystemExit(0)
 
-    return DEMConditioningConfig(
-        dem=a.dem,
-        out_dir=a.out_dir,
-        resample_dem=a.resample_dem,
-        target_resolution_m=a.target_resolution_m,
-        resampling_method=a.resampling_method,
-        fill_nodata=not a.no_fill_nodata,
-        max_nodata_fill_pixels=a.max_nodata_fill_pixels,
-        smooth_artifacts=not a.no_smooth_artifacts,
-        smooth_filter_cells=a.smooth_filter_cells,
-        slope_percentile=a.slope_percentile,
-        slope_threshold_deg=a.slope_threshold_deg,
-        protect_stream_buffer_m=a.protect_stream_buffer_m,
-        allow_stream_smoothing=a.allow_stream_smoothing,
-        streams=a.streams,
-        stream_buffer_m=a.stream_buffer_m,
-        stream_burn_depth_m=a.stream_burn_depth_m,
-        crossings=a.crossings,
-        crossing_buffer_m=a.crossing_buffer_m,
-        crossing_burn_depth_m=a.crossing_burn_depth_m,
-        auto_rivers_d4=a.auto_rivers_d4,
-        river_geometry_source=a.river_geometry_source,
-        external_river_width_raster=a.external_river_width_raster,
-        external_river_depth_raster=a.external_river_depth_raster,
-        external_geometry_min_width_m=a.external_geometry_min_width_m,
-        external_geometry_min_depth_m=a.external_geometry_min_depth_m,
-        spatial_beta_1_raster=a.spatial_beta_1_raster,
-        spatial_beta_2_raster=a.spatial_beta_2_raster,
-        spatial_alfa_1_raster=a.spatial_alfa_1_raster,
-        spatial_alfa_2_raster=a.spatial_alfa_2_raster,
-        min_area=a.min_area,
-        beta_1=a.beta_1,
-        beta_2=a.beta_2,
-        alfa_1=a.alfa_1,
-        alfa_2=a.alfa_2,
-        carve_mode=a.carve_mode,
-        channel_cell_width_m=a.channel_cell_width_m,
-        river_width_cap_m=a.river_width_cap_m,
-        river_depth_cap_m=a.river_depth_cap_m,
-        max_H_abg_m=a.max_H_abg_m,
-        use_least_cost_breaching=not a.no_least_cost_breaching,
-        breach_dist_cells=a.breach_dist_cells,
-        breach_max_cost=a.breach_max_cost,
-        breach_min_dist=not a.no_breach_min_dist,
-        breach_flat_increment=a.breach_flat_increment,
-        breach_fill_remaining=a.breach_fill_remaining,
-        breach_max_depth_m=a.breach_max_depth_m,
-        breach_max_length_cells=a.breach_max_length_cells,
-        fill_residual_depressions=a.fill_residual_depressions,
-        fill_max_depth_m=a.fill_max_depth_m,
-        make_plots=not a.no_plots,
-        allow_geographic_crs=a.allow_geographic_crs,
-    )
+    field_names = set(DEMConditioningConfig.__dataclass_fields__)
+    cfg_values = {}
+    for key, value in load_config_file(a.config).items():
+        if key in field_names:
+            cfg_values[key] = value
+        else:
+            warnings.warn(f"Ignoring unknown config key: {key}")
+
+    if a.config:
+        cfg_values["config_path"] = str(Path(a.config).expanduser().resolve())
+
+    flags = explicit_cli_flags()
+
+    def has_flag(*names: str) -> bool:
+        return any(name in flags for name in names)
+
+    def put(name: str, value, *flag_names: str) -> None:
+        if has_flag(*flag_names) or name not in cfg_values:
+            cfg_values[name] = value
+
+    put("dem", a.dem, "--dem")
+    put("out_dir", a.out_dir, "--out-dir")
+    put("resample_dem", a.resample_dem, "--resample-dem")
+    put("target_resolution_m", a.target_resolution_m, "--target-resolution-m")
+    put("resampling_method", a.resampling_method, "--resampling-method")
+    put("fill_nodata", not a.no_fill_nodata, "--no-fill-nodata")
+    put("max_nodata_fill_pixels", a.max_nodata_fill_pixels, "--max-nodata-fill-pixels")
+    put("smooth_artifacts", not a.no_smooth_artifacts, "--no-smooth-artifacts")
+    put("smooth_filter_cells", a.smooth_filter_cells, "--smooth-filter-cells")
+    put("slope_percentile", a.slope_percentile, "--slope-percentile")
+    put("slope_threshold_deg", a.slope_threshold_deg, "--slope-threshold-deg")
+    put("protect_stream_buffer_m", a.protect_stream_buffer_m, "--protect-stream-buffer-m")
+    put("allow_stream_smoothing", a.allow_stream_smoothing, "--allow-stream-smoothing")
+    put("streams", a.streams, "--streams")
+    put("stream_buffer_m", a.stream_buffer_m, "--stream-buffer-m")
+    put("stream_burn_depth_m", a.stream_burn_depth_m, "--stream-burn-depth-m")
+    put("crossings", a.crossings, "--crossings")
+    put("crossing_buffer_m", a.crossing_buffer_m, "--crossing-buffer-m")
+    put("crossing_burn_depth_m", a.crossing_burn_depth_m, "--crossing-burn-depth-m")
+    put("auto_rivers_d4", a.auto_rivers_d4, "--auto-rivers-d4")
+    put("river_geometry_source", a.river_geometry_source, "--river-geometry-source")
+    put("external_river_width_raster", a.external_river_width_raster, "--external-river-width-raster")
+    put("external_river_depth_raster", a.external_river_depth_raster, "--external-river-depth-raster")
+    put("external_geometry_min_width_m", a.external_geometry_min_width_m, "--external-geometry-min-width-m")
+    put("external_geometry_min_depth_m", a.external_geometry_min_depth_m, "--external-geometry-min-depth-m")
+    put("spatial_beta_1_raster", a.spatial_beta_1_raster, "--spatial-beta-1-raster")
+    put("spatial_beta_2_raster", a.spatial_beta_2_raster, "--spatial-beta-2-raster")
+    put("spatial_alfa_1_raster", a.spatial_alfa_1_raster, "--spatial-alfa-1-raster")
+    put("spatial_alfa_2_raster", a.spatial_alfa_2_raster, "--spatial-alfa-2-raster")
+    put("min_area", a.min_area, "--min-area", "--min-area-km2")
+    put("beta_1", a.beta_1, "--beta-1", "--width-a")
+    put("beta_2", a.beta_2, "--beta-2", "--width-b")
+    put("alfa_1", a.alfa_1, "--alfa-1", "--depth-a")
+    put("alfa_2", a.alfa_2, "--alfa-2", "--depth-b")
+    put("carve_mode", a.carve_mode, "--carve-mode")
+    put("channel_cell_width_m", a.channel_cell_width_m, "--channel-cell-width-m")
+    put("river_width_cap_m", a.river_width_cap_m, "--river-width-cap-m")
+    put("river_depth_cap_m", a.river_depth_cap_m, "--river-depth-cap-m")
+    put("max_H_abg_m", a.max_H_abg_m, "--max-H-abg-m", "--max-carve-depth-m")
+    put("use_least_cost_breaching", not a.no_least_cost_breaching, "--no-least-cost-breaching")
+    put("breach_dist_cells", a.breach_dist_cells, "--breach-dist-cells")
+    put("breach_max_cost", a.breach_max_cost, "--breach-max-cost")
+    put("breach_min_dist", not a.no_breach_min_dist, "--no-breach-min-dist")
+    put("breach_flat_increment", a.breach_flat_increment, "--breach-flat-increment")
+    put("breach_fill_remaining", a.breach_fill_remaining, "--breach-fill-remaining")
+    put("breach_max_depth_m", a.breach_max_depth_m, "--breach-max-depth-m")
+    put("breach_max_length_cells", a.breach_max_length_cells, "--breach-max-length-cells")
+    put("fill_residual_depressions", a.fill_residual_depressions, "--fill-residual-depressions")
+    put("fill_max_depth_m", a.fill_max_depth_m, "--fill-max-depth-m")
+    put("make_plots", not a.no_plots, "--no-plots")
+    put("allow_geographic_crs", a.allow_geographic_crs, "--allow-geographic-crs")
+
+    return DEMConditioningConfig(**cfg_values)
 
 
 def main() -> None:

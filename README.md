@@ -13,7 +13,14 @@ src/dem_processing/
   run_conditioning_1000m.py
   prepare_lin2020_bankfull_geometry.py
   calibrate_spatial_hydraulic_geometry.py
+  preflight.py
+  config.py
+  qa.py
   paths.py
+configs/
+  india_1000m_spatial.json
+  india_1000m_powerlaw_first_pass.json
+tests/
 Data/Lin2020_bankfull_width/
 Outputs/
   dem/
@@ -37,6 +44,11 @@ Use this when the Lin et al. data and spatial coefficient rasters already exist.
 
 ```bash
 cd /Users/mngomes/Documents/GitHub/DEM_Processing
+
+PYTHONPATH=src python3 -m dem_processing.preflight \
+  --config configs/india_1000m_spatial.json \
+  --require-lin \
+  --require-spatial-coefficients
 
 PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --dry-run
 PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m
@@ -67,26 +79,7 @@ needed for calibration.
 cd /Users/mngomes/Documents/GitHub/DEM_Processing
 
 PYTHONPATH=src python3 -m dem_processing.condition_dem \
-  --dem /Users/mngomes/Documents/GitHub/DEM_Processing/DEM_fabdem.tif \
-  --out-dir /Users/mngomes/Documents/GitHub/DEM_Processing/Outputs \
-  --resample-dem \
-  --target-resolution-m 1000 \
-  --resampling-method bilinear \
-  --auto-rivers-d4 \
-  --min-area 100 \
-  --river-geometry-source power_law \
-  --carve-mode wide \
-  --channel-cell-width-m 1000 \
-  --river-width-cap-m 10000 \
-  --river-depth-cap-m 30 \
-  --max-H-abg-m 50 \
-  --max-nodata-fill-pixels 10 \
-  --slope-percentile 95 \
-  --smooth-filter-cells 5 \
-  --protect-stream-buffer-m 2000 \
-  --breach-dist-cells 10000 \
-  --breach-flat-increment 0.01 \
-  --fill-max-depth-m 0.25
+  --config configs/india_1000m_powerlaw_first_pass.json
 ```
 
 This creates the D4 rasters used by the calibration step:
@@ -113,7 +106,9 @@ Data/Lin2020_bankfull_width/processed/
 ### 3. Calibrate spatial hydraulic geometry
 
 ```bash
-PYTHONPATH=src python3 -m dem_processing.calibrate_spatial_hydraulic_geometry --selected-threshold-km2 5000
+PYTHONPATH=src python3 -m dem_processing.calibrate_spatial_hydraulic_geometry \
+  --selected-threshold-km2 5000 \
+  --fit-area-source d4
 ```
 
 This delineates FABDEM-D4 calibration subcatchments, matches valid Lin samples,
@@ -127,13 +122,19 @@ Data/Lin2020_bankfull_width/calibration/D4_alfa_2_depth_5000km2.tif
 ```
 
 The selected calibration threshold is `5000 km2` because it had the best
-validation performance among `500`, `1000`, `2500`, and `5000 km2`.
+validation performance among `500`, `1000`, `2500`, and `5000 km2`. The current
+default fit uses matched FABDEM-D4 drainage area (`--fit-area-source d4`) so the
+calibration predictor matches the area used later by HydroPol2D.
 
 ### 4. Final DEM conditioning with spatial coefficients
 
 ```bash
-PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --dry-run
-PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m
+PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m \
+  --config configs/india_1000m_spatial.json \
+  --dry-run
+
+PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m \
+  --config configs/india_1000m_spatial.json
 ```
 
 In this mode, the river mask and drainage area come from FABDEM-D4. Lin et al.
@@ -162,6 +163,7 @@ Outputs/d4/
   D4_Wshed_Properties_River_Depth_m.tif
   D4_H_abg_m.tif
   D4_spatial_coefficients_used.tif
+  D4_power_law_fallback_used.tif
 
 Outputs/diagnostics/
   quicklook_dem_conditioning.png
@@ -170,11 +172,16 @@ Outputs/diagnostics/
   diagnostic_d4_river_extraction.png
   diagnostic_d4_threshold_sweep.png
   diagnostic_d4_mask_over_accumulation.png
+  diagnostic_d4_geometry_source_map.png
   diagnostic_hydraulic_geometry_histograms.png
   diagnostic_final_modifications.png
 
 Outputs/reports/
   conditioning_config.json
+  run_manifest.json
+  qa_scorecard.csv
+  qa_scorecard.json
+  qa_scorecard.md
   modification_summary.csv
   D4_HydroPol2D_creek_reduction_summary.csv
   D4_river_connectivity_summary.csv
@@ -189,9 +196,32 @@ Outputs/dem/DEM_modification_final_minus_cleaned.tif
 Outputs/d4/D4_idx_facc.tif
 Outputs/d4/D4_H_abg_m.tif
 Outputs/diagnostics/diagnostic_d4_river_extraction.png
+Outputs/diagnostics/diagnostic_d4_geometry_source_map.png
 Outputs/diagnostics/diagnostic_final_modifications.png
 Outputs/reports/D4_HydroPol2D_creek_reduction_summary.csv
+Outputs/reports/qa_scorecard.csv
+Outputs/reports/run_manifest.json
 Data/Lin2020_bankfull_width/calibration/diagnostic_spatial_calibration_d4_area_5000km2.png
+```
+
+## QA, Manifest, and Tests
+
+Every final conditioning run now writes:
+
+```text
+Outputs/reports/run_manifest.json
+Outputs/reports/qa_scorecard.csv
+Outputs/reports/qa_scorecard.json
+Outputs/reports/qa_scorecard.md
+```
+
+The scorecard currently flags large DEM lowering and river-mask fragmentation
+as warnings, while keeping coefficient fallback counts visible.
+
+Run the lightweight tests with:
+
+```bash
+PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
 ## Lin Calibration Diagnostics
@@ -221,6 +251,7 @@ you can use:
 ```bash
 dem-condition-1000m --dry-run
 dem-condition-1000m
+dem-preflight --config configs/india_1000m_spatial.json --require-lin --require-spatial-coefficients
 dem-prepare-lin2020 --download
-dem-calibrate-hydraulics --selected-threshold-km2 5000
+dem-calibrate-hydraulics --selected-threshold-km2 5000 --fit-area-source d4
 ```
