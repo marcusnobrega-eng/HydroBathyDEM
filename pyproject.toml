@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dem-processing"
+name = "riverdem-conditioner"
 version = "0.1.0"
-description = "HydroPol2D-style DEM conditioning, D4 routing diagnostics, and Lin2020 hydraulic geometry calibration."
+description = "River-aware DEM conditioning, D4 routing diagnostics, and Lin2020 hydraulic geometry calibration for flood models."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
@@ -15,6 +15,7 @@ keywords = [
     "DEM",
     "FABDEM",
     "HydroPol2D",
+    "river conditioning",
     "hydraulic geometry",
     "river bathymetry",
     "D4 routing",
@@ -44,8 +45,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/marcusnobrega-eng/DEM_Processing"
-Issues = "https://github.com/marcusnobrega-eng/DEM_Processing/issues"
+Repository = "https://github.com/marcusnobrega-eng/RiverDEM-Conditioner"
+Issues = "https://github.com/marcusnobrega-eng/RiverDEM-Conditioner/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -59,6 +60,11 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [project.scripts]
+riverdem-condition-1000m = "dem_processing.run_conditioning_1000m:main"
+riverdem-condition = "dem_processing.condition_dem:main"
+riverdem-prepare-lin2020 = "dem_processing.prepare_lin2020_bankfull_geometry:main"
+riverdem-calibrate-hydraulics = "dem_processing.calibrate_spatial_hydraulic_geometry:main"
+riverdem-preflight = "dem_processing.preflight:main"
 dem-condition-1000m = "dem_processing.run_conditioning_1000m:main"
 dem-condition = "dem_processing.condition_dem:main"
 dem-prepare-lin2020 = "dem_processing.prepare_lin2020_bankfull_geometry:main"

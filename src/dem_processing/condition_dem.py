@@ -3,7 +3,7 @@
 """
 condition_dem.py
 
-HydroPol2D-oriented DEM conditioning pipeline for flood/hydrodynamic modeling.
+RiverDEM-Conditioner pipeline for flood/hydrodynamic DEM conditioning.
 
 Default DEM path
 ----------------
@@ -94,15 +94,15 @@ Recommended:
 
 Minimal run
 -----------
-Uses the default DEM path and saves to DEM_Processing/Outputs:
+Uses the default DEM path and saves to Outputs:
 
-    dem-condition
+    riverdem-condition
 
 HydroPol2D D4 automatic creek reduction run
 -------------------------------------------
 Example only; replace coefficients with your calibrated/selected values:
 
-    dem-condition \
+    riverdem-condition \
         --auto-rivers-d4 \
         --min-area 5 \
         --beta-1 5.0 \
@@ -116,7 +116,7 @@ Example only; replace coefficients with your calibrated/selected values:
 Print full method documentation
 -------------------------------
 
-    dem-condition --documentation
+    riverdem-condition --documentation
 """
 
 from __future__ import annotations
@@ -360,7 +360,7 @@ The spatial calibration script delineates FABDEM-D4 subcatchments, assigns Lin
 samples to those zones, screens likely DEM/network mismatches, fits robust local
 power laws, and writes coefficient maps:
 
-    dem-calibrate-hydraulics --selected-threshold-km2 5000
+    riverdem-calibrate-hydraulics --selected-threshold-km2 5000
 
 The current runner uses the 5000 km2 coefficient maps because that tested
 threshold had the best validation performance among 500, 1000, 2500, and
@@ -372,7 +372,7 @@ The included Lin et al. 2020 preparation script creates external rasters from:
 
 Run:
 
-    dem-prepare-lin2020 --download
+    riverdem-prepare-lin2020 --download
 
 This writes:
 
@@ -552,7 +552,7 @@ Inspect this raster before using `DEM_hydraulic_conditioned.tif` in HydroPol2D.
 
 Purpose: establish a baseline with minimal changes.
 
-    dem-condition \
+    riverdem-condition \
         --out-dir Outputs/Test_01_conservative \
         --no-smooth-artifacts \
         --breach-dist-cells 50
@@ -568,7 +568,7 @@ Inspect:
 
 Purpose: remove only the most suspicious slope spikes.
 
-    dem-condition \
+    riverdem-condition \
         --out-dir Outputs/Test_02_smoothing \
         --slope-percentile 99.9 \
         --smooth-filter-cells 5 \
@@ -587,7 +587,7 @@ Inspect:
 Purpose: generate a synthetic D4 drainage network and carve creek cells using
 HydroPol2D hydraulic geometry.
 
-    dem-condition \
+    riverdem-condition \
         --out-dir Outputs/Test_03_D4_creeks \
         --auto-rivers-d4 \
         --min-area 5 \
@@ -653,7 +653,7 @@ Inspect:
 
 Purpose: avoid artificial road or bridge dams.
 
-    dem-condition \
+    riverdem-condition \
         --out-dir Outputs/Test_06_crossings \
         --auto-rivers-d4 \
         --min-area 5 \
@@ -773,7 +773,8 @@ But keep these alongside it for reproducibility:
 
 CURRENT_DOCUMENTATION = f"""# DEM Conditioning Run Documentation
 
-This run was produced by the packaged source layout in `src/dem_processing`.
+This run was produced by RiverDEM-Conditioner's packaged source layout in
+`src/dem_processing`.
 
 ## Active Modules
 
@@ -831,12 +832,12 @@ base HydroPol2D power law only for coefficient nodata holes
 ## Rebuild Commands
 
 ```bash
-dem-condition --help
-dem-preflight --config configs/india_1000m_spatial.json --require-lin --require-spatial-coefficients
-dem-prepare-lin2020 --download
-dem-calibrate-hydraulics --selected-threshold-km2 5000 --fit-area-source d4
-dem-condition-1000m --config configs/india_1000m_spatial.json --dry-run
-dem-condition-1000m --config configs/india_1000m_spatial.json
+riverdem-condition --help
+riverdem-preflight --config configs/india_1000m_spatial.json --require-lin --require-spatial-coefficients
+riverdem-prepare-lin2020 --download
+riverdem-calibrate-hydraulics --selected-threshold-km2 5000 --fit-area-source d4
+riverdem-condition-1000m --config configs/india_1000m_spatial.json --dry-run
+riverdem-condition-1000m --config configs/india_1000m_spatial.json
 ```
 """
 
@@ -2907,19 +2908,19 @@ def parse_args() -> DEMConditioningConfig:
 Examples
 --------
 Minimal default run:
-  dem-condition
+  riverdem-condition
 
 Automatic D4 HydroPol2D creek reduction after resampling to 1000 m:
-  dem-condition \
+  riverdem-condition \
     --resample-dem --target-resolution-m 1000 --resampling-method average \
     --auto-rivers-d4 --min-area 10000 \
     --beta-1 2.2695 --beta-2 0.4942 \
     --alfa-1 0.1097 --alfa-2 0.3856
 
 Automatic D4 rivers with Lin-calibrated spatial coefficient maps:
-  dem-prepare-lin2020 --download
-  dem-calibrate-hydraulics --selected-threshold-km2 5000
-  dem-condition \
+  riverdem-prepare-lin2020 --download
+  riverdem-calibrate-hydraulics --selected-threshold-km2 5000
+  riverdem-condition \
     --resample-dem --target-resolution-m 1000 --auto-rivers-d4 --min-area 100 \
     --river-geometry-source spatial_coefficients_or_power_law \
     --spatial-beta-1-raster Data/Lin2020_bankfull_width/calibration/D4_beta_1_width_5000km2.tif \
@@ -2928,7 +2929,7 @@ Automatic D4 rivers with Lin-calibrated spatial coefficient maps:
     --spatial-alfa-2-raster Data/Lin2020_bankfull_width/calibration/D4_alfa_2_depth_5000km2.tif
 
 Print full documentation:
-  dem-condition --documentation
+  riverdem-condition --documentation
 """
     )
 

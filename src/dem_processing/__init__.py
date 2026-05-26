@@ -1,4 +1,4 @@
-"""DEM conditioning tools for the HydroPol2D-style FABDEM workflow."""
+"""RiverDEM-Conditioner tools for river-aware DEM conditioning workflows."""
 
 __all__ = ["__version__"]
 

@@ -13,24 +13,24 @@ This runner does three things:
 
 Typical project folder:
 
-    DEM_Processing/
+    RiverDEM-Conditioner/
         DEM_fabdem.tif
         src/dem_processing/condition_dem.py
         src/dem_processing/run_conditioning_1000m.py
 
 Run:
 
-    cd DEM_Processing
+    cd RiverDEM-Conditioner
     python3 -m pip install -e .
-    dem-condition-1000m --install-deps
+    riverdem-condition-1000m --install-deps
 
 After dependencies are installed, run:
 
-    dem-condition-1000m
+    riverdem-condition-1000m
 
 To only print the command without running:
 
-    dem-condition-1000m --dry-run
+    riverdem-condition-1000m --dry-run
 """
 
 from __future__ import annotations
@@ -351,7 +351,7 @@ def main() -> None:
         for package in missing:
             print(f"  - {package}")
         print("\nRun:")
-        print("  dem-condition-1000m --install-deps")
+        print("  riverdem-condition-1000m --install-deps")
         sys.exit(1)
 
     if args.setup_only:

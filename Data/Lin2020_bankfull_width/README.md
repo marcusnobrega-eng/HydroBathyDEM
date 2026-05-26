@@ -9,7 +9,7 @@ Rebuild with:
 
 ```bash
 python3 -m pip install -e .
-dem-prepare-lin2020 --download
+riverdem-prepare-lin2020 --download
 ```
 
 The default model grid is `Outputs/dem/DEM_resampled_1000m.tif`, and the

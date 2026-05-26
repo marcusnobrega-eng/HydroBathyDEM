@@ -102,13 +102,13 @@ From the repository root:
 ```bash
 python3 -m pip install -e .
 
-dem-preflight \
+riverdem-preflight \
   --config configs/india_1000m_spatial.json \
   --require-lin \
   --require-spatial-coefficients
 
-dem-condition --config configs/india_1000m_powerlaw_first_pass.json
-dem-prepare-lin2020 --download
-dem-calibrate-hydraulics --selected-threshold-km2 5000 --fit-area-source d4
-dem-condition-1000m --config configs/india_1000m_spatial.json
+riverdem-condition --config configs/india_1000m_powerlaw_first_pass.json
+riverdem-prepare-lin2020 --download
+riverdem-calibrate-hydraulics --selected-threshold-km2 5000 --fit-area-source d4
+riverdem-condition-1000m --config configs/india_1000m_spatial.json
 ```
