@@ -1,4 +1,4 @@
-"""RiverDEM-Conditioner tools for river-aware DEM conditioning workflows."""
+"""HydroBathyDEM tools for river-aware DEM conditioning workflows."""
 
 __all__ = ["__version__"]
 

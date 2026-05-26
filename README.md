@@ -1,4 +1,4 @@
-# RiverDEM-Conditioner
+# HydroBathyDEM
 
 Installable Python toolbox for DEM conditioning using river bathymetry, DEM-D4
 routing diagnostics, and Lin et al. 2020 hydraulic-geometry calibration.
@@ -56,8 +56,8 @@ Clone the repository, create an environment, and install the package in editable
 mode:
 
 ```bash
-git clone https://github.com/marcusnobrega-eng/RiverDEM-Conditioner.git
-cd RiverDEM-Conditioner
+git clone https://github.com/marcusnobrega-eng/HydroBathyDEM.git
+cd HydroBathyDEM
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -78,17 +78,17 @@ python3 -m pip install .
 For a direct install from GitHub:
 
 ```bash
-python3 -m pip install git+https://github.com/marcusnobrega-eng/RiverDEM-Conditioner.git
+python3 -m pip install git+https://github.com/marcusnobrega-eng/HydroBathyDEM.git
 ```
 
 The package installs these command-line tools:
 
 ```text
-riverdem-condition
-riverdem-condition-1000m
-riverdem-prepare-lin2020
-riverdem-calibrate-hydraulics
-riverdem-preflight
+hydrobathydem-condition
+hydrobathydem-condition-1000m
+hydrobathydem-prepare-lin2020
+hydrobathydem-calibrate-hydraulics
+hydrobathydem-preflight
 ```
 
 ## Required Local Data
@@ -110,13 +110,13 @@ pipeline and are kept out of Git.
 Use this when the Lin et al. data and spatial coefficient rasters already exist:
 
 ```bash
-riverdem-preflight \
+hydrobathydem-preflight \
   --config configs/india_1000m_spatial.json \
   --require-lin \
   --require-spatial-coefficients
 
-riverdem-condition-1000m --config configs/india_1000m_spatial.json --dry-run
-riverdem-condition-1000m --config configs/india_1000m_spatial.json
+hydrobathydem-condition-1000m --config configs/india_1000m_spatial.json --dry-run
+hydrobathydem-condition-1000m --config configs/india_1000m_spatial.json
 ```
 
 The current India example uses:
@@ -137,7 +137,7 @@ resolution, or regenerating Lin-calibrated hydraulic geometry.
 ### 1. Build the first-pass FABDEM-D4 drainage products
 
 ```bash
-riverdem-condition --config configs/india_1000m_powerlaw_first_pass.json
+hydrobathydem-condition --config configs/india_1000m_powerlaw_first_pass.json
 ```
 
 This creates the D4 rasters needed by calibration:
@@ -150,7 +150,7 @@ Outputs/d4/D4_Wshed_Properties_fac_area_km2.tif
 ### 2. Prepare Lin et al. 2020 width/depth data
 
 ```bash
-riverdem-prepare-lin2020 --download
+hydrobathydem-prepare-lin2020 --download
 ```
 
 This downloads the Lin et al. reach data if needed, clips it to the DEM domain,
@@ -164,7 +164,7 @@ Data/Lin2020_bankfull_width/processed/
 ### 3. Calibrate spatial hydraulic geometry
 
 ```bash
-riverdem-calibrate-hydraulics \
+hydrobathydem-calibrate-hydraulics \
   --selected-threshold-km2 5000 \
   --fit-area-source d4
 ```
@@ -192,12 +192,12 @@ matches the area later used by HydroPol2D.
 ### 4. Final DEM conditioning with spatial coefficients
 
 ```bash
-riverdem-preflight \
+hydrobathydem-preflight \
   --config configs/india_1000m_spatial.json \
   --require-lin \
   --require-spatial-coefficients
 
-riverdem-condition-1000m --config configs/india_1000m_spatial.json
+hydrobathydem-condition-1000m --config configs/india_1000m_spatial.json
 ```
 
 In this mode, the river mask and drainage area come from FABDEM-D4. Lin et al.
@@ -281,18 +281,18 @@ python3 -m build
 This writes:
 
 ```text
-dist/riverdem_conditioner-0.1.0.tar.gz
-dist/riverdem_conditioner-0.1.0-py3-none-any.whl
+dist/hydrobathydem-0.1.0.tar.gz
+dist/hydrobathydem-0.1.0-py3-none-any.whl
 ```
 
 Check installed entry points:
 
 ```bash
-riverdem-condition --help
-riverdem-condition-1000m --help
-riverdem-prepare-lin2020 --help
-riverdem-calibrate-hydraulics --help
-riverdem-preflight --help
+hydrobathydem-condition --help
+hydrobathydem-condition-1000m --help
+hydrobathydem-prepare-lin2020 --help
+hydrobathydem-calibrate-hydraulics --help
+hydrobathydem-preflight --help
 ```
 
 ## Notes
