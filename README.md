@@ -1,59 +1,97 @@
-# HydroBathyDEM
+<p align="center">
+  <h1 align="center">HydroBathyDEM</h1>
+  <p align="center">
+    River-aware DEM conditioning, D4 routing diagnostics, and bathymetry preparation for flood models.
+  </p>
+</p>
 
-Installable Python toolbox for DEM conditioning using river bathymetry, DEM-D4
-routing diagnostics, and Lin et al. 2020 hydraulic-geometry calibration.
+<p align="center">
+  <a href="https://github.com/marcusnobrega-eng/HydroBathyDEM/blob/main/LICENSE">
+    <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg">
+  </a>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-blue.svg">
+  <img alt="Package" src="https://img.shields.io/badge/package-hydrobathydem-2b9348.svg">
+  <img alt="Status" src="https://img.shields.io/badge/status-alpha-orange.svg">
+  <img alt="Focus" src="https://img.shields.io/badge/focus-DEM%20%7C%20rivers%20%7C%20bathymetry-0f766e.svg">
+</p>
 
-The toolbox prepares a coarse model DEM by:
+<p align="center">
+  <a href="#-overview">Overview</a> |
+  <a href="#-quick-start">Quick Start</a> |
+  <a href="#-complete-workflow">Workflow</a> |
+  <a href="#-outputs">Outputs</a> |
+  <a href="#-development">Development</a> |
+  <a href="#-license">License</a>
+</p>
 
-- resampling and cleaning the input DEM,
-- smoothing only extreme slope artifacts,
-- building a D4 drainage surface and D4 river mask,
-- calibrating spatial width/depth power laws from Lin et al. 2020,
-- applying river bathymetry lowering based on the 2-year return period flow and Manning's equation,
-- writing diagnostics, QA scorecards, and a run manifest.
+---
 
-Large DEMs, downloaded geospatial data, and generated outputs are intentionally
-not tracked by Git due to file size limitations
+## Overview
 
-## Repository Layout
+**HydroBathyDEM** is an installable Python toolbox for preparing DEMs for
+hydrologic and hydrodynamic flood-model workflows. It focuses on the part of
+DEM preprocessing where terrain conditioning, D4 routing, river extraction,
+bankfull hydraulic geometry, and bathymetry lowering have to agree with one
+another.
+
+It currently supports workflows based on:
+
+- **FABDEM or any projected DEM** readable by `rasterio`
+- **D4 flow routing** for HydroPol2D-style model grids
+- **Lin et al. 2020 global bankfull river width** data
+- **Manning-based Q2 depth estimation**
+- **spatial hydraulic-geometry calibration**
+- **diagnostic plots, QA reports, and reproducible run manifests**
+
+The toolbox is intentionally audit-heavy. It writes intermediate rasters,
+diagnostic figures, CSV/JSON summaries, and a manifest so that every major DEM
+change can be inspected before the final DEM is used in a flood model.
+
+## Why HydroBathyDEM?
+
+Most DEM conditioning tools can fill, breach, smooth, or burn channels. This
+toolbox is more specific: it tries to preserve the connection between a model
+grid, D4 drainage area, river-mask extraction, bankfull width/depth estimates,
+and the final bathymetric lowering applied to the DEM.
+
+The core logic is:
 
 ```text
-pyproject.toml
-MANIFEST.in
-README.md
-src/dem_processing/
-  condition_dem.py
-  run_conditioning_1000m.py
-  prepare_lin2020_bankfull_geometry.py
-  calibrate_spatial_hydraulic_geometry.py
-  preflight.py
-  config.py
-  qa.py
-  paths.py
-configs/
-  india_1000m_spatial.json
-  india_1000m_powerlaw_first_pass.json
-docs/
-tests/
-Data/Lin2020_bankfull_width/
-Outputs/
+DEM -> D4 drainage area -> river mask -> width/depth -> H_abg lowering -> QA
 ```
 
-Ignored local files include:
+where:
 
 ```text
-DEM_fabdem.tif
-*.tif, *.gpkg, *.shp, *.zip
-Data/Lin2020_bankfull_width/raw/
-Data/Lin2020_bankfull_width/processed/
-Data/Lin2020_bankfull_width/calibration/*.tif
-Outputs/
+River_Width = beta_1(x,y) * A_D4 ^ beta_2(x,y)
+River_Depth = alfa_1(x,y) * A_D4 ^ alfa_2(x,y)
+H_abg = ((River_Width / Resolution) * River_Depth^(5/3))^(3/5)
 ```
 
-## Install
+## Features
 
-Clone the repository, create an environment, and install the package in editable
-mode:
+- 🗺️ DEM resampling, NoData cleanup, selective smoothing, and hydrologic conditioning
+- 🌊 D4 flow direction, D4 flow accumulation, and river-mask extraction
+- 📏 Lin et al. 2020 river-width download and preprocessing
+- 📐 Manning-equation depth estimates from width, Q2, and slope
+- 🧭 spatially varying hydraulic-geometry coefficients by D4 subcatchment
+- 🧪 preflight checks for missing DEM, Lin, and coefficient inputs
+- 📊 diagnostic plots for smoothing, D4 extraction, geometry source, and final DEM changes
+- 🧾 QA scorecards and run manifests for reproducibility
+- 📦 installable command-line package with `hydrobathydem-*` entry points
+
+## Repository
+
+```text
+Repository : https://github.com/marcusnobrega-eng/HydroBathyDEM
+Package    : hydrobathydem
+License    : MIT
+Status     : alpha / research toolbox
+```
+
+## Installation
+
+Clone and install in editable mode:
 
 ```bash
 git clone https://github.com/marcusnobrega-eng/HydroBathyDEM.git
@@ -66,48 +104,32 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -e .
 ```
 
-Editable mode means the installed commands use the local source files directly.
-That is the best mode while developing the toolbox.
-
-For a normal install from a local checkout:
-
-```bash
-python3 -m pip install .
-```
-
-For a direct install from GitHub:
+Install directly from GitHub:
 
 ```bash
 python3 -m pip install git+https://github.com/marcusnobrega-eng/HydroBathyDEM.git
 ```
 
-The package installs these command-line tools:
+Check the installed commands:
 
-```text
-hydrobathydem-condition
-hydrobathydem-condition-1000m
-hydrobathydem-prepare-lin2020
-hydrobathydem-calibrate-hydraulics
-hydrobathydem-preflight
+```bash
+hydrobathydem-condition --help
+hydrobathydem-condition-1000m --help
+hydrobathydem-prepare-lin2020 --help
+hydrobathydem-calibrate-hydraulics --help
+hydrobathydem-preflight --help
 ```
 
-## Required Local Data
+## Quick Start
 
-Place the source DEM at the project root:
+Place your source DEM at the repository root or point the config to it. The
+example configs use:
 
 ```text
 DEM_fabdem.tif
 ```
 
-The example configs use relative paths, so run commands from the repository
-root unless you provide absolute paths in your config.
-
-The Lin et al. 2020 raw and processed files are downloaded or generated by the
-pipeline and are kept out of Git.
-
-## Quick Rerun
-
-Use this when the Lin et al. data and spatial coefficient rasters already exist:
+Run the final workflow when Lin data and coefficient rasters already exist:
 
 ```bash
 hydrobathydem-preflight \
@@ -115,49 +137,56 @@ hydrobathydem-preflight \
   --require-lin \
   --require-spatial-coefficients
 
-hydrobathydem-condition-1000m --config configs/india_1000m_spatial.json --dry-run
-hydrobathydem-condition-1000m --config configs/india_1000m_spatial.json
+hydrobathydem-condition-1000m \
+  --config configs/india_1000m_spatial.json \
+  --dry-run
+
+hydrobathydem-condition-1000m \
+  --config configs/india_1000m_spatial.json
 ```
 
 The current India example uses:
 
 ```text
-river geometry source = spatial_coefficients_or_power_law
+DEM/model resolution  = 1000 m
 river threshold       = 100 km2
 coefficient threshold = 5000 km2
-DEM/model resolution  = 1000 m
+geometry source       = spatial_coefficients_or_power_law
 slope artifact mask   = 95th slope percentile
 ```
 
-## Complete Pipeline
+## Complete Workflow
 
 Use this sequence when rebuilding from scratch, changing the DEM/grid
 resolution, or regenerating Lin-calibrated hydraulic geometry.
 
-### 1. Build the first-pass FABDEM-D4 drainage products
+### 1. Build first-pass FABDEM-D4 drainage products
 
 ```bash
-hydrobathydem-condition --config configs/india_1000m_powerlaw_first_pass.json
+hydrobathydem-condition \
+  --config configs/india_1000m_powerlaw_first_pass.json
 ```
 
-This creates the D4 rasters needed by calibration:
+This creates:
 
 ```text
+Outputs/dem/DEM_resampled_1000m.tif
 Outputs/d4/D4_flow_direction.tif
 Outputs/d4/D4_Wshed_Properties_fac_area_km2.tif
+Outputs/d4/D4_idx_facc.tif
 ```
 
-### 2. Prepare Lin et al. 2020 width/depth data
+### 2. Download and process Lin et al. 2020 river geometry
 
 ```bash
 hydrobathydem-prepare-lin2020 --download
 ```
 
 This downloads the Lin et al. reach data if needed, clips it to the DEM domain,
-computes Manning Q2 depth from `Width_m`, `Q2`, and slope, and writes processed
-products under:
+computes Manning Q2 depth from `Width_m`, `Q2`, and slope, and writes:
 
 ```text
+Data/Lin2020_bankfull_width/raw/
 Data/Lin2020_bankfull_width/processed/
 ```
 
@@ -169,14 +198,7 @@ hydrobathydem-calibrate-hydraulics \
   --fit-area-source d4
 ```
 
-This fits spatial power-law coefficients:
-
-```text
-River_Width = beta_1 * drainage_area_km2^beta_2
-River_Depth = alfa_1 * drainage_area_km2^alfa_2
-```
-
-and writes:
+This writes spatial coefficient rasters:
 
 ```text
 Data/Lin2020_bankfull_width/calibration/D4_beta_1_width_5000km2.tif
@@ -185,11 +207,7 @@ Data/Lin2020_bankfull_width/calibration/D4_alfa_1_depth_5000km2.tif
 Data/Lin2020_bankfull_width/calibration/D4_alfa_2_depth_5000km2.tif
 ```
 
-The selected threshold is currently `5000 km2`, and the default fit uses matched
-FABDEM-D4 drainage area (`--fit-area-source d4`) so the calibration predictor
-matches the area later used by HydroPol2D.
-
-### 4. Final DEM conditioning with spatial coefficients
+### 4. Run final DEM conditioning
 
 ```bash
 hydrobathydem-preflight \
@@ -197,17 +215,13 @@ hydrobathydem-preflight \
   --require-lin \
   --require-spatial-coefficients
 
-hydrobathydem-condition-1000m --config configs/india_1000m_spatial.json
+hydrobathydem-condition-1000m \
+  --config configs/india_1000m_spatial.json
 ```
-
-In this mode, the river mask and drainage area come from FABDEM-D4. Lin et al.
-2020 is used to calibrate spatial width/depth coefficients, not to replace the
-FABDEM-derived D4 river network. Missing coefficient cells fall back to the base
-HydroPol2D power law to keep the carved network continuous.
 
 ## Outputs
 
-The toolbox organizes generated products by theme:
+HydroBathyDEM organizes generated products by theme:
 
 ```text
 Outputs/dem/
@@ -231,8 +245,6 @@ Outputs/d4/
   D4_power_law_fallback_used.tif
 
 Outputs/diagnostics/
-  quicklook_dem_conditioning.png
-  diagnostic_pipeline_stages.png
   diagnostic_smoothing_artifacts.png
   diagnostic_d4_river_extraction.png
   diagnostic_d4_threshold_sweep.png
@@ -250,10 +262,9 @@ Outputs/reports/
   modification_summary.csv
   D4_HydroPol2D_creek_reduction_summary.csv
   D4_river_connectivity_summary.csv
-  DEM_conditioning_README.md
 ```
 
-Start QA by inspecting:
+Start QA here:
 
 ```text
 Outputs/reports/qa_scorecard.md
@@ -262,6 +273,41 @@ Outputs/diagnostics/diagnostic_d4_river_extraction.png
 Outputs/diagnostics/diagnostic_d4_geometry_source_map.png
 Outputs/diagnostics/diagnostic_final_modifications.png
 ```
+
+## Data Policy
+
+Large files are intentionally excluded from Git:
+
+```text
+DEM_fabdem.tif
+*.tif, *.tiff, *.gpkg, *.shp, *.zip
+Data/Lin2020_bankfull_width/raw/
+Data/Lin2020_bankfull_width/processed/
+Data/Lin2020_bankfull_width/calibration/*.tif
+Outputs/
+```
+
+This repository stores code, docs, tests, and example configs. Users download
+or generate DEMs, Lin source data, coefficient rasters, and model outputs
+locally.
+
+## Project Layout
+
+```text
+pyproject.toml
+MANIFEST.in
+LICENSE
+README.md
+configs/
+docs/
+tests/
+src/dem_processing/
+Data/Lin2020_bankfull_width/
+Outputs/
+```
+
+The public package is named `hydrobathydem`. The internal Python module is
+currently `dem_processing`.
 
 ## Development
 
@@ -285,20 +331,14 @@ dist/hydrobathydem-0.1.0.tar.gz
 dist/hydrobathydem-0.1.0-py3-none-any.whl
 ```
 
-Check installed entry points:
+## Citation And Data Sources
 
-```bash
-hydrobathydem-condition --help
-hydrobathydem-condition-1000m --help
-hydrobathydem-prepare-lin2020 --help
-hydrobathydem-calibrate-hydraulics --help
-hydrobathydem-preflight --help
-```
+HydroBathyDEM currently uses Lin et al. 2020 bankfull river width data:
 
-## Notes
+- [Zenodo record: Global estimates of reach-level bankfull river width](https://zenodo.org/records/3552776)
 
-This package does not include the FABDEM input, Lin et al. 2020 shapefiles, or
-generated rasters. Those are local data products and should remain outside Git.
+Please cite the underlying DEM and river datasets used in your application.
 
-No open-source license has been declared yet. Add a `LICENSE` file before
-publishing as a reusable public package.
+## License
+
+HydroBathyDEM is released under the [MIT License](LICENSE).

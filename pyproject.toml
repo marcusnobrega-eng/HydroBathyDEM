@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "River-aware DEM conditioning, D4 routing diagnostics, and Lin2020 hydraulic geometry calibration for flood models."
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
 authors = [
     {name = "Marcus Gomes"},
 ]
