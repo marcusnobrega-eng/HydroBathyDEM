@@ -1,6 +1,6 @@
 # RiverDEM-Conditioner
 
-Installable Python toolbox for river-aware DEM conditioning, FABDEM-D4
+Installable Python toolbox for DEM conditioning using river bathymetry, DEM-D4
 routing diagnostics, and Lin et al. 2020 hydraulic-geometry calibration.
 
 The toolbox prepares a coarse model DEM by:
@@ -9,11 +9,11 @@ The toolbox prepares a coarse model DEM by:
 - smoothing only extreme slope artifacts,
 - building a D4 drainage surface and D4 river mask,
 - calibrating spatial width/depth power laws from Lin et al. 2020,
-- applying HydroPol2D-style river bathymetry lowering,
+- applying river bathymetry lowering based on the 2-year return period flow and Manning's equation,
 - writing diagnostics, QA scorecards, and a run manifest.
 
 Large DEMs, downloaded geospatial data, and generated outputs are intentionally
-not tracked by Git.
+not tracked by Git due to file size limitations
 
 ## Repository Layout
 
