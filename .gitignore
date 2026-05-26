@@ -12,6 +12,8 @@ __pycache__/
 venv/
 env/
 *.egg-info/
+build/
+dist/
 
 # Large local DEM inputs
 DEM_fabdem.tif

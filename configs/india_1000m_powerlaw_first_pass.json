@@ -1,6 +1,6 @@
 {
-  "dem": "/Users/mngomes/Documents/GitHub/DEM_Processing/DEM_fabdem.tif",
-  "out-dir": "/Users/mngomes/Documents/GitHub/DEM_Processing/Outputs",
+  "dem": "DEM_fabdem.tif",
+  "out-dir": "Outputs",
   "resample-dem": true,
   "target-resolution-m": 1000.0,
   "resampling-method": "bilinear",

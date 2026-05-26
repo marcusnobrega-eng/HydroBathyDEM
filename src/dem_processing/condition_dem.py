@@ -7,12 +7,12 @@ HydroPol2D-oriented DEM conditioning pipeline for flood/hydrodynamic modeling.
 
 Default DEM path
 ----------------
-/Users/mngomes/Documents/GitHub/DEM_Processing/DEM_fabdem.tif
+DEM_fabdem.tif in the active project root.
 
 Default output folder
 ---------------------
 If --out-dir is not provided, all outputs are written to:
-/Users/mngomes/Documents/GitHub/DEM_Processing/Outputs
+Outputs next to the input DEM.
 
 Purpose
 -------
@@ -87,22 +87,22 @@ Installation
 ------------
 Recommended:
 
-    conda create -n dem_processing python=3.10 -y
+    conda create -n dem_processing python=3.11 -y
     conda activate dem_processing
     conda install -c conda-forge rasterio geopandas shapely pyproj scipy matplotlib pandas numpy -y
-    pip install whitebox
+    python3 -m pip install -e .
 
 Minimal run
 -----------
 Uses the default DEM path and saves to DEM_Processing/Outputs:
 
-    PYTHONPATH=src python3 -m dem_processing.condition_dem
+    dem-condition
 
 HydroPol2D D4 automatic creek reduction run
 -------------------------------------------
 Example only; replace coefficients with your calibrated/selected values:
 
-    PYTHONPATH=src python3 -m dem_processing.condition_dem \
+    dem-condition \
         --auto-rivers-d4 \
         --min-area 5 \
         --beta-1 5.0 \
@@ -116,7 +116,7 @@ Example only; replace coefficients with your calibrated/selected values:
 Print full method documentation
 -------------------------------
 
-    PYTHONPATH=src python3 -m dem_processing.condition_dem --documentation
+    dem-condition --documentation
 """
 
 from __future__ import annotations
@@ -194,11 +194,11 @@ changed.
 
 Default input DEM:
 
-    /Users/mngomes/Documents/GitHub/DEM_Processing/DEM_fabdem.tif
+    DEM_fabdem.tif
 
 Default output directory:
 
-    /Users/mngomes/Documents/GitHub/DEM_Processing/Outputs
+    Outputs
 
 
 ## 2. Main processing stages
@@ -360,7 +360,7 @@ The spatial calibration script delineates FABDEM-D4 subcatchments, assigns Lin
 samples to those zones, screens likely DEM/network mismatches, fits robust local
 power laws, and writes coefficient maps:
 
-    PYTHONPATH=src python3 -m dem_processing.calibrate_spatial_hydraulic_geometry --selected-threshold-km2 5000
+    dem-calibrate-hydraulics --selected-threshold-km2 5000
 
 The current runner uses the 5000 km2 coefficient maps because that tested
 threshold had the best validation performance among 500, 1000, 2500, and
@@ -372,7 +372,7 @@ The included Lin et al. 2020 preparation script creates external rasters from:
 
 Run:
 
-    PYTHONPATH=src python3 -m dem_processing.prepare_lin2020_bankfull_geometry --download
+    dem-prepare-lin2020 --download
 
 This writes:
 
@@ -552,8 +552,8 @@ Inspect this raster before using `DEM_hydraulic_conditioned.tif` in HydroPol2D.
 
 Purpose: establish a baseline with minimal changes.
 
-    PYTHONPATH=src python3 -m dem_processing.condition_dem \
-        --out-dir /Users/mngomes/Documents/GitHub/DEM_Processing/Outputs/Test_01_conservative \
+    dem-condition \
+        --out-dir Outputs/Test_01_conservative \
         --no-smooth-artifacts \
         --breach-dist-cells 50
 
@@ -568,8 +568,8 @@ Inspect:
 
 Purpose: remove only the most suspicious slope spikes.
 
-    PYTHONPATH=src python3 -m dem_processing.condition_dem \
-        --out-dir /Users/mngomes/Documents/GitHub/DEM_Processing/Outputs/Test_02_smoothing \
+    dem-condition \
+        --out-dir Outputs/Test_02_smoothing \
         --slope-percentile 99.9 \
         --smooth-filter-cells 5 \
         --breach-dist-cells 50
@@ -587,8 +587,8 @@ Inspect:
 Purpose: generate a synthetic D4 drainage network and carve creek cells using
 HydroPol2D hydraulic geometry.
 
-    PYTHONPATH=src python3 -m dem_processing.condition_dem \
-        --out-dir /Users/mngomes/Documents/GitHub/DEM_Processing/Outputs/Test_03_D4_creeks \
+    dem-condition \
+        --out-dir Outputs/Test_03_D4_creeks \
         --auto-rivers-d4 \
         --min-area 5 \
         --beta-1 5.0 \
@@ -653,8 +653,8 @@ Inspect:
 
 Purpose: avoid artificial road or bridge dams.
 
-    PYTHONPATH=src python3 -m dem_processing.condition_dem \
-        --out-dir /Users/mngomes/Documents/GitHub/DEM_Processing/Outputs/Test_06_crossings \
+    dem-condition \
+        --out-dir Outputs/Test_06_crossings \
         --auto-rivers-d4 \
         --min-area 5 \
         --beta-1 5.0 --beta-2 0.50 \
@@ -831,12 +831,12 @@ base HydroPol2D power law only for coefficient nodata holes
 ## Rebuild Commands
 
 ```bash
-PYTHONPATH=src python3 -m dem_processing.condition_dem --help
-PYTHONPATH=src python3 -m dem_processing.preflight --config configs/india_1000m_spatial.json --require-lin --require-spatial-coefficients
-PYTHONPATH=src python3 -m dem_processing.prepare_lin2020_bankfull_geometry --download
-PYTHONPATH=src python3 -m dem_processing.calibrate_spatial_hydraulic_geometry --selected-threshold-km2 5000 --fit-area-source d4
-PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --config configs/india_1000m_spatial.json --dry-run
-PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --config configs/india_1000m_spatial.json
+dem-condition --help
+dem-preflight --config configs/india_1000m_spatial.json --require-lin --require-spatial-coefficients
+dem-prepare-lin2020 --download
+dem-calibrate-hydraulics --selected-threshold-km2 5000 --fit-area-source d4
+dem-condition-1000m --config configs/india_1000m_spatial.json --dry-run
+dem-condition-1000m --config configs/india_1000m_spatial.json
 ```
 """
 
@@ -2735,9 +2735,7 @@ def resolve_output_dir(cfg: DEMConditioningConfig) -> Path:
     Resolve output directory.
 
     If the user does not provide --out-dir, all outputs go into an Outputs
-    folder next to the DEM, e.g.:
-
-        /Users/mngomes/Documents/GitHub/DEM_Processing/Outputs
+    folder next to the DEM, e.g. `Outputs`.
     """
     if cfg.out_dir:
         return Path(cfg.out_dir).expanduser().resolve()
@@ -2905,23 +2903,23 @@ def parse_args() -> DEMConditioningConfig:
     p = argparse.ArgumentParser(
         description="HydroPol2D-oriented DEM conditioning for flood modeling.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=r"""
 Examples
 --------
 Minimal default run:
-  PYTHONPATH=src python3 -m dem_processing.condition_dem
+  dem-condition
 
 Automatic D4 HydroPol2D creek reduction after resampling to 1000 m:
-  PYTHONPATH=src python3 -m dem_processing.condition_dem \
+  dem-condition \
     --resample-dem --target-resolution-m 1000 --resampling-method average \
     --auto-rivers-d4 --min-area 10000 \
     --beta-1 2.2695 --beta-2 0.4942 \
     --alfa-1 0.1097 --alfa-2 0.3856
 
 Automatic D4 rivers with Lin-calibrated spatial coefficient maps:
-  PYTHONPATH=src python3 -m dem_processing.prepare_lin2020_bankfull_geometry --download
-  PYTHONPATH=src python3 -m dem_processing.calibrate_spatial_hydraulic_geometry --selected-threshold-km2 5000
-  PYTHONPATH=src python3 -m dem_processing.condition_dem \
+  dem-prepare-lin2020 --download
+  dem-calibrate-hydraulics --selected-threshold-km2 5000
+  dem-condition \
     --resample-dem --target-resolution-m 1000 --auto-rivers-d4 --min-area 100 \
     --river-geometry-source spatial_coefficients_or_power_law \
     --spatial-beta-1-raster Data/Lin2020_bankfull_width/calibration/D4_beta_1_width_5000km2.tif \
@@ -2930,7 +2928,7 @@ Automatic D4 rivers with Lin-calibrated spatial coefficient maps:
     --spatial-alfa-2-raster Data/Lin2020_bankfull_width/calibration/D4_alfa_2_depth_5000km2.tif
 
 Print full documentation:
-  PYTHONPATH=src python3 -m dem_processing.condition_dem --documentation
+  dem-condition --documentation
 """
     )
 

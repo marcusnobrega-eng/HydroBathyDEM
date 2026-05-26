@@ -1,8 +1,8 @@
 # DEM Conditioning Pipeline Notes
 
 This document summarizes the active pipeline after the code cleanup. The old
-root-level `v4`, `v5`, and `blockfix` script names are no longer used; the
-toolbox now runs from `src/dem_processing`.
+root-level `v4`, `v5`, and `blockfix` script names are no longer used. The
+toolbox now installs as a Python package with console commands.
 
 ## Active Python Modules
 
@@ -100,14 +100,15 @@ Outputs/reports/run_manifest.json
 From the repository root:
 
 ```bash
-PYTHONPATH=src python3 -m dem_processing.preflight \
+python3 -m pip install -e .
+
+dem-preflight \
   --config configs/india_1000m_spatial.json \
   --require-lin \
   --require-spatial-coefficients
 
-PYTHONPATH=src python3 -m dem_processing.condition_dem \
-  --config configs/india_1000m_powerlaw_first_pass.json
-PYTHONPATH=src python3 -m dem_processing.prepare_lin2020_bankfull_geometry --download
-PYTHONPATH=src python3 -m dem_processing.calibrate_spatial_hydraulic_geometry --selected-threshold-km2 5000 --fit-area-source d4
-PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --config configs/india_1000m_spatial.json
+dem-condition --config configs/india_1000m_powerlaw_first_pass.json
+dem-prepare-lin2020 --download
+dem-calibrate-hydraulics --selected-threshold-km2 5000 --fit-area-source d4
+dem-condition-1000m --config configs/india_1000m_spatial.json
 ```

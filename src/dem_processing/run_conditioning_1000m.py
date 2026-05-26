@@ -11,25 +11,26 @@ This runner does three things:
 2) Resamples the DEM to the selected model resolution first.
 3) Runs the DEM-conditioning workflow with your HydroPol2D parameters.
 
-Folder expected on your Mac:
+Typical project folder:
 
-    /Users/mngomes/Documents/GitHub/DEM_Processing/
+    DEM_Processing/
         DEM_fabdem.tif
         src/dem_processing/condition_dem.py
         src/dem_processing/run_conditioning_1000m.py
 
 Run:
 
-    cd /Users/mngomes/Documents/GitHub/DEM_Processing
-    PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --install-deps
+    cd DEM_Processing
+    python3 -m pip install -e .
+    dem-condition-1000m --install-deps
 
 After dependencies are installed, run:
 
-    PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m
+    dem-condition-1000m
 
 To only print the command without running:
 
-    PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --dry-run
+    dem-condition-1000m --dry-run
 """
 
 from __future__ import annotations
@@ -350,7 +351,7 @@ def main() -> None:
         for package in missing:
             print(f"  - {package}")
         print("\nRun:")
-        print("  PYTHONPATH=src python3 -m dem_processing.run_conditioning_1000m --install-deps")
+        print("  dem-condition-1000m --install-deps")
         sys.exit(1)
 
     if args.setup_only:

@@ -1,12 +1,59 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "dem-processing"
 version = "0.1.0"
-description = "HydroPol2D-style FABDEM conditioning and Lin2020 hydraulic geometry calibration."
+description = "HydroPol2D-style DEM conditioning, D4 routing diagnostics, and Lin2020 hydraulic geometry calibration."
+readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+    {name = "Marcus Gomes"},
+]
+keywords = [
+    "DEM",
+    "FABDEM",
+    "HydroPol2D",
+    "hydraulic geometry",
+    "river bathymetry",
+    "D4 routing",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+dependencies = [
+    "affine",
+    "geopandas",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "pyogrio",
+    "pyproj",
+    "rasterio",
+    "scipy",
+    "shapely",
+    "whitebox",
+]
+
+[project.urls]
+Repository = "https://github.com/marcusnobrega-eng/DEM_Processing"
+Issues = "https://github.com/marcusnobrega-eng/DEM_Processing/issues"
+
+[project.optional-dependencies]
+dev = [
+    "build",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

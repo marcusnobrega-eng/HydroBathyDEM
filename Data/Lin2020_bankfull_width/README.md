@@ -8,8 +8,8 @@ The Zenodo shapefile does not include a `.prj` file, but its bounds are global l
 Rebuild with:
 
 ```bash
-cd /Users/mngomes/Documents/GitHub/DEM_Processing
-PYTHONPATH=src python3 -m dem_processing.prepare_lin2020_bankfull_geometry --download
+python3 -m pip install -e .
+dem-prepare-lin2020 --download
 ```
 
 The default model grid is `Outputs/dem/DEM_resampled_1000m.tif`, and the

@@ -2,10 +2,29 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+def default_project_root() -> Path:
+    """Return the working project root for data/config/output defaults.
+
+    In an editable source checkout, use the repository root. In a normal wheel
+    install, package files live under site-packages, so use the current working
+    directory unless DEM_PROCESSING_PROJECT_ROOT is set.
+    """
+    env_root = os.environ.get("DEM_PROCESSING_PROJECT_ROOT")
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+
+    source_root = Path(__file__).resolve().parents[2]
+    if (source_root / "pyproject.toml").exists() and (source_root / "src" / "dem_processing").exists():
+        return source_root
+
+    return Path.cwd().resolve()
+
+
+PROJECT_ROOT = default_project_root()
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "Outputs"
 
 
