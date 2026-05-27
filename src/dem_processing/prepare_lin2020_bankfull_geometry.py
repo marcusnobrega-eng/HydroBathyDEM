@@ -455,6 +455,14 @@ def plot_diagnostics(processed_dir: Path, raster_paths: Dict[str, Path], d4_mask
 
 def write_data_readme(raw_dir: Path, processed_dir: Path, settings: Dict[str, object], raster_paths: Dict[str, Path]) -> None:
     readme = processed_dir.parent / "README.md"
+    base_dir = processed_dir.parent
+
+    def display_path(path: Path) -> str:
+        try:
+            return str(path.relative_to(base_dir))
+        except ValueError:
+            return str(path)
+
     lines = [
         "# Lin et al. 2020 Bankfull Geometry",
         "",
@@ -465,13 +473,14 @@ def write_data_readme(raw_dir: Path, processed_dir: Path, settings: Dict[str, ob
         "",
         "## Raw Files",
         "",
-        f"`raw/` contains the downloaded `{RAW_STEM}` shapefile parts:",
+        f"The raw `{RAW_STEM}` shapefile parts were read from `{display_path(raw_dir)}`.",
+        "They are not copied into this processed-data folder, which keeps small examples lightweight.",
         "",
     ]
     for filename in ZENODO_FILES:
         path = raw_dir / filename
         size = path.stat().st_size if path.exists() else 0
-        lines.append(f"- `{path.relative_to(processed_dir.parent)}` ({size:,} bytes)")
+        lines.append(f"- `{display_path(path)}` ({size:,} bytes)")
     lines.extend(
         [
             "",
@@ -487,7 +496,7 @@ def write_data_readme(raw_dir: Path, processed_dir: Path, settings: Dict[str, ob
         ]
     )
     for key, path in raster_paths.items():
-        lines.append(f"- `{path.relative_to(processed_dir.parent)}`")
+        lines.append(f"- `{display_path(path)}`")
     lines.extend(
         [
             "",

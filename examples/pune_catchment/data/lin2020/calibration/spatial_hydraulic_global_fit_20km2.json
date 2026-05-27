@@ -1,0 +1,45 @@
+{
+  "threshold_km2": 20.0,
+  "global_width": {
+    "coefficient": 69.19100368679288,
+    "exponent": 0.09033736817098337,
+    "n_total": 44,
+    "n_used": 44,
+    "r2_log": 0.20651912777074288,
+    "rmse_log": 0.30337039411180217,
+    "mae_log": 0.23643215576038257,
+    "valid": true
+  },
+  "global_depth": {
+    "coefficient": 0.12178952076985931,
+    "exponent": 0.3783880907715405,
+    "n_total": 44,
+    "n_used": 42,
+    "r2_log": 0.5067776439854779,
+    "rmse_log": 0.5929907095949614,
+    "mae_log": 0.46121226164434065,
+    "valid": true
+  },
+  "raster_paths": {
+    "subcatchments": "examples/pune_catchment/data/lin2020/calibration/D4_subcatchments_20km2.tif",
+    "beta_1": "examples/pune_catchment/data/lin2020/calibration/D4_beta_1_width_20km2.tif",
+    "beta_2": "examples/pune_catchment/data/lin2020/calibration/D4_beta_2_width_20km2.tif",
+    "alfa_1": "examples/pune_catchment/data/lin2020/calibration/D4_alfa_1_depth_20km2.tif",
+    "alfa_2": "examples/pune_catchment/data/lin2020/calibration/D4_alfa_2_depth_20km2.tif",
+    "sample_count": "examples/pune_catchment/data/lin2020/calibration/D4_coeff_sample_count_20km2.tif",
+    "fit_quality": "examples/pune_catchment/data/lin2020/calibration/D4_coeff_fit_quality_20km2.tif",
+    "fallback_level": "examples/pune_catchment/data/lin2020/calibration/D4_coeff_fallback_level_20km2.tif",
+    "calibrated_width": "examples/pune_catchment/data/lin2020/calibration/D4_calibrated_River_Width_m_20km2.tif",
+    "calibrated_depth": "examples/pune_catchment/data/lin2020/calibration/D4_calibrated_River_Depth_m_20km2.tif",
+    "calibrated_h_abg": "examples/pune_catchment/data/lin2020/calibration/D4_calibrated_H_abg_m_20km2.tif"
+  },
+  "filters": {
+    "match_network_threshold_km2": 5.0,
+    "max_nearest_distance_m": 5000.0,
+    "min_area_ratio": 0.01,
+    "max_area_ratio": 100.0,
+    "min_boundary_distance_m": 0.0,
+    "min_samples_per_zone": 5,
+    "min_log10_area_range": 0.05
+  }
+}

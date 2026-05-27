@@ -36,6 +36,7 @@ DEM_fabdem.tif
 
 # Generated model outputs and diagnostics
 Outputs/
+examples/**/outputs/
 
 # Downloaded/processed Lin et al. 2020 data artifacts
 Data/Lin2020_bankfull_width/raw/
@@ -57,3 +58,22 @@ Data/Lin2020_bankfull_width/calibration/*
 *.tgz
 *.tmp
 tmp_*
+
+# Tracked lightweight documentation and mini-case assets.
+# Keep these exceptions at the end because gitignore uses the last match.
+!docs/assets/*.png
+!examples/
+!examples/pune_catchment/
+!examples/pune_catchment/README.md
+!examples/pune_catchment/assets/
+!examples/pune_catchment/assets/*.png
+!examples/pune_catchment/configs/
+!examples/pune_catchment/configs/*.json
+!examples/pune_catchment/data/
+!examples/pune_catchment/data/DEM_fabdem_pune.tif
+!examples/pune_catchment/data/lin2020/
+!examples/pune_catchment/data/lin2020/README.md
+!examples/pune_catchment/data/lin2020/processed/
+!examples/pune_catchment/data/lin2020/processed/*
+!examples/pune_catchment/data/lin2020/calibration/
+!examples/pune_catchment/data/lin2020/calibration/*

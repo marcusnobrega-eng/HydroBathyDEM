@@ -1,0 +1,38 @@
+{
+  "source_record_url": "https://zenodo.org/records/3552776",
+  "raw_dir": "Data/Lin2020_bankfull_width/raw",
+  "processed_dir": "examples/pune_catchment/data/lin2020/processed",
+  "raw_files": {
+    "rivers_ge30m.cpg": 10,
+    "rivers_ge30m.shx": 5790676,
+    "rivers_ge30m.dbf": 361187884,
+    "rivers_ge30m.shp": 1421971140
+  },
+  "raw_crs_assumption": "EPSG:4326 because the Zenodo shapefile has no .prj and its bounds are lon/lat degrees",
+  "dem_grid": "examples/pune_catchment/outputs/dem/DEM_raw_cleaned.tif",
+  "dem_grid_crs": "EPSG:32643",
+  "dem_grid_bounds": [
+    325625.409610386,
+    2023195.484614876,
+    406385.409610386,
+    2098705.484614876
+  ],
+  "dem_grid_bounds_epsg4326": [
+    73.343678678971,
+    18.2912378250238,
+    74.11423472604669,
+    18.978686810205698
+  ],
+  "settings": {
+    "source_record_url": "https://zenodo.org/records/3552776",
+    "manning_n": 0.035,
+    "min_slope": 1e-05,
+    "max_slope": 0.05,
+    "depth_cap_m": 20.0,
+    "max_H_abg_m": 8.0,
+    "carve_mode": "wide",
+    "rasterize_buffer_m": 45.0,
+    "all_touched": true
+  },
+  "feature_count_processed": 64
+}

@@ -19,6 +19,7 @@
   <a href="#-overview">Overview</a> |
   <a href="#-visual-diagnostics">Visual Diagnostics</a> |
   <a href="#-quick-start">Quick Start</a> |
+  <a href="#-pune-30-m-mini-case">Mini Case</a> |
   <a href="#-complete-workflow">Workflow</a> |
   <a href="#-outputs">Outputs</a> |
   <a href="#-development">Development</a> |
@@ -142,6 +143,10 @@ Install directly from GitHub:
 python3 -m pip install git+https://github.com/marcusnobrega-eng/HydroBathyDEM.git
 ```
 
+The bundled Pune mini-case files are meant for a cloned repository checkout.
+Use the editable install above when you want to run the examples exactly as
+shown below.
+
 Check the installed commands:
 
 ```bash
@@ -154,8 +159,22 @@ hydrobathydem-preflight --help
 
 ## Quick Start
 
-Place your source DEM at the repository root or point the config to it. The
-example configs use:
+For a quick package test, run the tracked Pune 30 m mini case:
+
+```bash
+hydrobathydem-condition \
+  --config examples/pune_catchment/configs/pune_30m_powerlaw_first_pass.json
+```
+
+The mini case includes a small projected FABDEM tile, so it works immediately
+after cloning and installing the package. It writes outputs to:
+
+```text
+examples/pune_catchment/outputs/
+```
+
+For the larger India workflow, place your source DEM at the repository root or
+point the config to it. The India configs use:
 
 ```text
 DEM_fabdem.tif
@@ -186,6 +205,59 @@ coefficient threshold = 5000 km2
 geometry source       = spatial_coefficients_or_power_law
 slope artifact mask   = 95th slope percentile
 ```
+
+## Pune 30 m Mini Case
+
+The repository includes a small Pune-area test case built from
+`DEM_fabdem_pune.tif`. It is projected to `EPSG:32643`, uses 30 m cells, and is
+small enough to keep in GitHub. This lets a new user test the package without
+first downloading national DEM or Lin datasets.
+
+![Pune DEM conditioning stages](examples/pune_catchment/assets/pune_pipeline_stages.png)
+
+The 30 m example uses smaller thresholds than the India setup:
+
+```text
+DEM/model resolution       = 30 m
+river threshold            = 5 km2
+Lin calibration threshold  = 20 km2
+max H_abg lowering         = 8 m
+geometry source options    = power_law or spatial_coefficients_or_power_law
+```
+
+Run the fast power-law version:
+
+```bash
+hydrobathydem-condition \
+  --config examples/pune_catchment/configs/pune_30m_powerlaw_first_pass.json
+```
+
+Run the external-data version using the tracked Pune-only Lin subset and
+calibration rasters:
+
+```bash
+hydrobathydem-preflight \
+  --config examples/pune_catchment/configs/pune_30m_spatial.json \
+  --require-spatial-coefficients
+
+hydrobathydem-condition \
+  --config examples/pune_catchment/configs/pune_30m_spatial.json
+```
+
+The Pune Lin subset contains 64 reaches in the padded DEM domain, with 44 valid
+FABDEM-D4 matches. That is enough to test the full workflow, but too few for
+meaningful local subcatchment-specific coefficient fits. The example therefore
+uses the global Pune subset fallback in the coefficient rasters.
+
+![Pune D4 river extraction](examples/pune_catchment/assets/pune_d4_river_extraction.png)
+
+![Pune Lin2020 overlap and hydraulic geometry](examples/pune_catchment/assets/pune_lin2020_width_depth.png)
+
+![Pune final DEM changes](examples/pune_catchment/assets/pune_final_modifications.png)
+
+See [`examples/pune_catchment/README.md`](examples/pune_catchment/README.md)
+for the full rebuild commands, Lin preprocessing command, and calibration
+notes.
 
 ## Complete Workflow
 

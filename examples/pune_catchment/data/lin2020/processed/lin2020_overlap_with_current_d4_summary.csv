@@ -1,0 +1,7 @@
+metric,value,units
+d4_mask_available,1.0,boolean
+lin2020_cells,103696.0,cells
+d4_river_cells,41266.0,cells
+overlap_cells,10339.0,cells
+lin2020_percent_overlapping_d4,9.97049066502083,percent
+d4_percent_with_lin2020_geometry,25.05452430572384,percent

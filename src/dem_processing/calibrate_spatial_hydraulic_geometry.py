@@ -412,10 +412,12 @@ def fit_zone_coefficients(
     min_abs_log_residual: float,
 ) -> Tuple[pd.DataFrame, Dict[str, PowerLawFit]]:
     train = samples["calibration_valid"].to_numpy() & train_mask
+    train_count = int(train.sum())
+    global_min_samples = max(min_samples, 50) if train_count >= 50 else min_samples
     global_width = robust_power_law_fit(
         samples.loc[train, "fit_area_km2"].to_numpy(),
         samples.loc[train, "lin_width_m"].to_numpy(),
-        min_samples=max(min_samples, 50),
+        min_samples=global_min_samples,
         min_log10_area_range=min_log10_area_range,
         exponent_bounds=(0.05, 1.20),
         max_mad=max_mad,
@@ -424,7 +426,7 @@ def fit_zone_coefficients(
     global_depth = robust_power_law_fit(
         samples.loc[train, "fit_area_km2"].to_numpy(),
         samples.loc[train, "lin_depth_m"].to_numpy(),
-        min_samples=max(min_samples, 50),
+        min_samples=global_min_samples,
         min_log10_area_range=min_log10_area_range,
         exponent_bounds=(0.02, 1.20),
         max_mad=max_mad,
