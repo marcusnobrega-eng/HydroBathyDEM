@@ -17,6 +17,7 @@
 
 <p align="center">
   <a href="#-overview">Overview</a> |
+  <a href="#-visual-diagnostics">Visual Diagnostics</a> |
   <a href="#-quick-start">Quick Start</a> |
   <a href="#-complete-workflow">Workflow</a> |
   <a href="#-outputs">Outputs</a> |
@@ -67,6 +68,37 @@ River_Width = beta_1(x,y) * A_D4 ^ beta_2(x,y)
 River_Depth = alfa_1(x,y) * A_D4 ^ alfa_2(x,y)
 H_abg = ((River_Width / Resolution) * River_Depth^(5/3))^(3/5)
 ```
+
+## Visual Diagnostics
+
+HydroBathyDEM is designed to make DEM changes visible, not just to produce a
+final raster. A typical run writes diagnostic figures that show the starting
+terrain, the conditioned terrain, the D4 river mask, bathymetry lowering, and
+where the largest modifications happened.
+
+### DEM Conditioning Stages
+
+This overview compares the main DEM stages, including the cleaned DEM,
+hydrologically conditioned surface, final hydraulic DEM, and final change map.
+
+![HydroBathyDEM pipeline stages](docs/assets/readme_pipeline_stages.png)
+
+### D4 River Extraction And Bathymetry Inputs
+
+The river diagnostic shows D4 upstream area, the extracted river mask, estimated
+river width, and `H_abg` bathymetry lowering. This is the first place to inspect
+whether the river network looks realistic for the chosen flow-accumulation
+threshold.
+
+![D4 river extraction diagnostic](docs/assets/readme_d4_river_extraction.png)
+
+### Largest DEM Changes
+
+The final modification diagnostic highlights where the DEM was lowered or
+raised relative to the cleaned DEM. This helps separate river bathymetry changes
+from terrain-conditioning changes such as breaching or local pit repair.
+
+![Final DEM modification diagnostic](docs/assets/readme_final_modifications.png)
 
 ## Features
 
