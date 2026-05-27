@@ -39,7 +39,7 @@ another.
 It currently supports workflows based on:
 
 - **FABDEM or any projected DEM** readable by `rasterio`
-- **D4 flow routing** for HydroPol2D-style model grids
+- **D4 flow routing** for hydrodynamic model grids suc has LISFLOOD or HydroPol2D
 - **Lin et al. 2020 global bankfull river width** data
 - **Manning-based Q2 depth estimation**
 - **spatial hydraulic-geometry calibration**
