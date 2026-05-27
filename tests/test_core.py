@@ -10,6 +10,7 @@ from affine import Affine
 
 from dem_processing.config import config_to_cli_args, load_config_file
 from dem_processing.condition_dem import compute_equivalent_H_abg, compute_d4_flow_accumulation
+from dem_processing.fabdem import choose_target_crs, parse_resolution
 from dem_processing.paths import output_path, output_theme
 
 
@@ -51,6 +52,18 @@ class CoreToolboxTests(unittest.TestCase):
         self.assertEqual(acc.shape, dem.shape)
         self.assertEqual(receiver.shape, dem.shape)
         self.assertGreaterEqual(float(np.nanmax(acc)), 3.0)
+
+    def test_parse_fabdem_resolution(self) -> None:
+        self.assertEqual(parse_resolution("30"), 30.0)
+        self.assertEqual(parse_resolution("30,60"), (30.0, 60.0))
+        self.assertEqual(parse_resolution("30x60"), (30.0, 60.0))
+
+    def test_choose_target_crs_prefers_explicit(self) -> None:
+        class Aoi:
+            crs = "EPSG:4326"
+
+        crs = choose_target_crs(Aoi(), target_crs="EPSG:32643")
+        self.assertEqual(crs.to_epsg(), 32643)
 
 
 if __name__ == "__main__":

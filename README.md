@@ -104,6 +104,7 @@ from terrain-conditioning changes such as breaching or local pit repair.
 ## Features
 
 - 🗺️ DEM resampling, NoData cleanup, selective smoothing, and hydrologic conditioning
+- 🧱 FABDEM download, tile mosaicking, AOI clipping, reprojection, and optional gap filling
 - 🌊 D4 flow direction, D4 flow accumulation, and river-mask extraction
 - 📏 Lin et al. 2020 river-width download and preprocessing
 - 📐 Manning-equation depth estimates from width, Q2, and slope
@@ -137,6 +138,13 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -e .
 ```
 
+Install the optional FABDEM downloader support when you want HydroBathyDEM to
+fetch FABDEM directly from catchment bounds:
+
+```bash
+python3 -m pip install -e ".[fabdem]"
+```
+
 Install directly from GitHub:
 
 ```bash
@@ -155,6 +163,7 @@ hydrobathydem-condition-1000m --help
 hydrobathydem-prepare-lin2020 --help
 hydrobathydem-calibrate-hydraulics --help
 hydrobathydem-preflight --help
+hydrobathydem-build-dem --help
 ```
 
 ## Quick Start
@@ -259,10 +268,86 @@ See [`examples/pune_catchment/README.md`](examples/pune_catchment/README.md)
 for the full rebuild commands, Lin preprocessing command, and calibration
 notes.
 
+## Build A DEM From A Catchment
+
+Users can either provide any projected DEM directly to the conditioning configs,
+or build one from a catchment/AOI vector using FABDEM.
+
+Automatic FABDEM download uses the optional
+[`fabdem`](https://pypi.org/project/fabdem/) package, which accepts EPSG:4326
+longitude/latitude bounds and downloads the intersecting FABDEM tiles. Install
+the optional dependency first:
+
+```bash
+python3 -m pip install -e ".[fabdem]"
+```
+
+Then build a 30 m projected DEM from a catchment boundary:
+
+```bash
+hydrobathydem-build-dem \
+  --download \
+  --aoi path/to/catchment.gpkg \
+  --output-dir Data/DEM/pune \
+  --output-prefix DEM_fabdem_pune \
+  --target-crs EPSG:32643 \
+  --target-resolution 30 \
+  --download-cache Data/FABDEM_cache \
+  --fill-gaps
+```
+
+This writes:
+
+```text
+Data/DEM/pune/DEM_fabdem_pune_mosaic_native_unclipped.tif
+Data/DEM/pune/DEM_fabdem_pune_native_clipped.tif
+Data/DEM/pune/DEM_fabdem_pune_30m.tif
+Data/DEM/pune/DEM_fabdem_pune_30m_filled.tif
+Data/DEM/pune/fabdem_build_manifest.json
+```
+
+If you already downloaded and unzipped FABDEM tiles, use local-tile mode:
+
+```bash
+hydrobathydem-build-dem \
+  --fabdem-dir Data/FABDEM_tiles \
+  --aoi path/to/catchment.gpkg \
+  --output-dir Data/DEM/pune \
+  --output-prefix DEM_fabdem_pune \
+  --target-crs EPSG:32643 \
+  --target-resolution 30 \
+  --recursive
+```
+
+After this, set the generated DEM path in a config:
+
+```json
+{
+  "dem": "Data/DEM/pune/DEM_fabdem_pune_30m.tif",
+  "out-dir": "Outputs/pune"
+}
+```
+
 ## Complete Workflow
 
 Use this sequence when rebuilding from scratch, changing the DEM/grid
 resolution, or regenerating Lin-calibrated hydraulic geometry.
+
+### 0. Prepare or provide a DEM
+
+Either use your own projected DEM, or create one with:
+
+```bash
+hydrobathydem-build-dem \
+  --download \
+  --aoi path/to/catchment.gpkg \
+  --output-dir Data/DEM/catchment \
+  --output-prefix DEM_fabdem_catchment \
+  --target-crs EPSG:32643 \
+  --target-resolution 30
+```
+
+Then point the conditioning config's `dem` field to the generated GeoTIFF.
 
 ### 1. Build first-pass FABDEM-D4 drainage products
 
@@ -388,12 +473,15 @@ DEM_fabdem.tif
 Data/Lin2020_bankfull_width/raw/
 Data/Lin2020_bankfull_width/processed/
 Data/Lin2020_bankfull_width/calibration/*.tif
+Data/DEM/
+Data/FABDEM_cache/
+Data/FABDEM_tiles/
 Outputs/
 ```
 
-This repository stores code, docs, tests, and example configs. Users download
-or generate DEMs, Lin source data, coefficient rasters, and model outputs
-locally.
+This repository stores code, docs, tests, example configs, and a small tracked
+Pune mini-case. Users download or generate larger DEMs, Lin source data,
+coefficient rasters, and model outputs locally.
 
 ## Project Layout
 

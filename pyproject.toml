@@ -53,6 +53,9 @@ Issues = "https://github.com/marcusnobrega-eng/HydroBathyDEM/issues"
 dev = [
     "build",
 ]
+fabdem = [
+    "fabdem>=0.2.0",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -66,3 +69,4 @@ hydrobathydem-condition = "dem_processing.condition_dem:main"
 hydrobathydem-prepare-lin2020 = "dem_processing.prepare_lin2020_bankfull_geometry:main"
 hydrobathydem-calibrate-hydraulics = "dem_processing.calibrate_spatial_hydraulic_geometry:main"
 hydrobathydem-preflight = "dem_processing.preflight:main"
+hydrobathydem-build-dem = "dem_processing.fabdem:main"

@@ -43,6 +43,9 @@ Data/Lin2020_bankfull_width/raw/
 Data/Lin2020_bankfull_width/processed/
 Data/Lin2020_bankfull_width/calibration/
 Data/Lin2020_bankfull_width/calibration/*
+Data/DEM/
+Data/FABDEM_cache/
+Data/FABDEM_tiles/
 
 # Keep lightweight documentation in data folders
 !Data/
