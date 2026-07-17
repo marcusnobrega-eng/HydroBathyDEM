@@ -97,6 +97,29 @@ local hydraulic-geometry calibration. At this size, there are too few Lin
 samples per subcatchment, so the coefficient rasters mostly carry the robust
 global fallback derived from the Pune subset.
 
+## Geometry-Only Export
+
+To export a terrain-conditioned DEM without bathymetry lowering, plus
+river-only width/depth rasters, run this after either conditioning test:
+
+```bash
+hydrobathydem-export-geometry \
+  --out-dir examples/pune_catchment/outputs \
+  --overwrite
+```
+
+This creates:
+
+```text
+examples/pune_catchment/outputs/dem/DEM_conditioned_no_bathymetry.tif
+examples/pune_catchment/outputs/d4/D4_River_Width_river_cells_m.tif
+examples/pune_catchment/outputs/d4/D4_River_Depth_river_cells_m.tif
+examples/pune_catchment/outputs/reports/geometry_only_export_summary.json
+```
+
+The width/depth rasters use the selected D4 river mask from the run. Values are
+defined only on river cells; all other cells are `NaN`.
+
 ## Rebuild The Lin2020 Subset
 
 If the full Lin et al. 2020 raw shapefile has already been downloaded, this

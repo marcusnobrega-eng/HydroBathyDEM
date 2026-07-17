@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hydrobathydem"
 version = "0.1.0"
-description = "River-aware DEM conditioning, D4 routing diagnostics, and Lin2020 hydraulic geometry calibration for flood models."
+description = "FABDEM-based DEM conditioning, D4 river geometry, and optional bathymetry lowering for flood-model workflows."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -20,6 +20,8 @@ keywords = [
     "hydraulic geometry",
     "river bathymetry",
     "D4 routing",
+    "FABDEM download",
+    "flood modeling",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -70,3 +72,4 @@ hydrobathydem-prepare-lin2020 = "dem_processing.prepare_lin2020_bankfull_geometr
 hydrobathydem-calibrate-hydraulics = "dem_processing.calibrate_spatial_hydraulic_geometry:main"
 hydrobathydem-preflight = "dem_processing.preflight:main"
 hydrobathydem-build-dem = "dem_processing.fabdem:main"
+hydrobathydem-export-geometry = "dem_processing.geometry_export:main"

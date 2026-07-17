@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">HydroBathyDEM</h1>
   <p align="center">
-    River-aware DEM conditioning, D4 routing diagnostics, and bathymetry preparation for flood models.
+    FABDEM-based DEM conditioning, D4 river geometry, and optional bathymetry lowering for flood-model workflows.
   </p>
 </p>
 
@@ -111,6 +111,7 @@ from terrain-conditioning changes such as breaching or local pit repair.
 - 🧭 spatially varying hydraulic-geometry coefficients by D4 subcatchment
 - 🧪 preflight checks for missing DEM, Lin, and coefficient inputs
 - 📊 diagnostic plots for smoothing, D4 extraction, geometry source, and final DEM changes
+- 🧩 geometry-only export for a no-bathymetry DEM plus river-only width/depth rasters
 - 🧾 QA scorecards and run manifests for reproducibility
 - 📦 installable command-line package with `hydrobathydem-*` entry points
 
@@ -164,6 +165,7 @@ hydrobathydem-prepare-lin2020 --help
 hydrobathydem-calibrate-hydraulics --help
 hydrobathydem-preflight --help
 hydrobathydem-build-dem --help
+hydrobathydem-export-geometry --help
 ```
 
 ## Quick Start
@@ -328,6 +330,31 @@ After this, set the generated DEM path in a config:
 }
 ```
 
+## Geometry-Only Export
+
+Some models need a terrain-conditioned DEM without bathymetry lowering, while
+river width and depth are passed as separate raster inputs. After any normal
+conditioning run, export those products with:
+
+```bash
+hydrobathydem-export-geometry \
+  --out-dir examples/pune_catchment/outputs \
+  --overwrite
+```
+
+This uses the existing intermediate products from the run and writes:
+
+```text
+examples/pune_catchment/outputs/dem/DEM_conditioned_no_bathymetry.tif
+examples/pune_catchment/outputs/d4/D4_River_Width_river_cells_m.tif
+examples/pune_catchment/outputs/d4/D4_River_Depth_river_cells_m.tif
+examples/pune_catchment/outputs/reports/geometry_only_export_summary.json
+```
+
+The width/depth rasters contain values only where the selected D4 river mask is
+positive. All non-river cells are written as `NaN`, so downstream workflows can
+clearly distinguish river geometry from non-river terrain.
+
 ## Complete Workflow
 
 Use this sequence when rebuilding from scratch, changing the DEM/grid
@@ -408,6 +435,17 @@ hydrobathydem-condition-1000m \
   --config configs/india_1000m_spatial.json
 ```
 
+### 5. Optional geometry-only export
+
+```bash
+hydrobathydem-export-geometry \
+  --out-dir Outputs \
+  --overwrite
+```
+
+Use this when you want the conditioned DEM before bathymetry lowering and
+separate river-width/depth rasters for the D4 river cells.
+
 ## Outputs
 
 HydroBathyDEM organizes generated products by theme:
@@ -418,6 +456,7 @@ Outputs/dem/
   DEM_raw_cleaned.tif
   DEM_artifact_smoothed.tif
   DEM_hydrologically_conditioned_pre_bathymetry.tif
+  DEM_conditioned_no_bathymetry.tif
   DEM_reduced_creeks_D4.tif
   DEM_hydraulic_conditioned.tif
   DEM_modification_final_minus_cleaned.tif
@@ -429,6 +468,8 @@ Outputs/d4/
   D4_idx_facc.tif
   D4_Wshed_Properties_River_Width_m.tif
   D4_Wshed_Properties_River_Depth_m.tif
+  D4_River_Width_river_cells_m.tif
+  D4_River_Depth_river_cells_m.tif
   D4_H_abg_m.tif
   D4_spatial_coefficients_used.tif
   D4_power_law_fallback_used.tif
@@ -448,6 +489,7 @@ Outputs/reports/
   qa_scorecard.csv
   qa_scorecard.json
   qa_scorecard.md
+  geometry_only_export_summary.json
   modification_summary.csv
   D4_HydroPol2D_creek_reduction_summary.csv
   D4_river_connectivity_summary.csv

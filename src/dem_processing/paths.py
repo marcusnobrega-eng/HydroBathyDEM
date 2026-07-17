@@ -38,6 +38,7 @@ REPORT_FILES = {
     "qa_scorecard.csv",
     "qa_scorecard.json",
     "qa_scorecard.md",
+    "geometry_only_export_summary.json",
 }
 
 
