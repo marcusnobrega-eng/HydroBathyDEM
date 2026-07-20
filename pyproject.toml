@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hydrobathydem"
 version = "0.1.0"
-description = "FABDEM-based DEM conditioning, D4 river geometry, and optional bathymetry lowering for flood-model workflows."
+description = "Raster DEM conditioning, D4 river geometry, and optional bathymetry lowering for flood-model workflows."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -14,7 +14,9 @@ authors = [
 ]
 keywords = [
     "DEM",
+    "DEM conditioning",
     "FABDEM",
+    "raster DEM",
     "HydroPol2D",
     "river conditioning",
     "hydraulic geometry",

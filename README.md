@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">HydroBathyDEM</h1>
   <p align="center">
-    FABDEM-based DEM conditioning, D4 river geometry, and optional bathymetry lowering for flood-model workflows.
+    Raster DEM conditioning, D4 river geometry, and optional bathymetry lowering for flood-model workflows.
   </p>
 </p>
 
@@ -30,16 +30,21 @@
 
 ## Overview
 
-**HydroBathyDEM** is an installable Python toolbox for preparing DEMs for
-hydrologic and hydrodynamic flood-model workflows. It focuses on the part of
-DEM preprocessing where terrain conditioning, D4 routing, river extraction,
-bankfull hydraulic geometry, and bathymetry lowering have to agree with one
-another.
+**HydroBathyDEM** is an installable Python toolbox for preparing raster DEMs for
+hydrologic and hydrodynamic flood-model workflows. It is not tied to one DEM
+product: the core conditioning pipeline can use any single-band projected DEM
+readable by `rasterio`. FABDEM support is included as an optional convenience
+when users want HydroBathyDEM to download, mosaic, clip, and reproject a DEM
+from a catchment boundary.
 
-It currently supports workflows based on:
+The toolbox focuses on the part of DEM preprocessing where terrain
+conditioning, D4 routing, river extraction, bankfull hydraulic geometry, and
+bathymetry lowering have to agree with one another. It currently supports
+workflows based on:
 
-- **FABDEM or any projected DEM** readable by `rasterio`
-- **D4 flow routing** for hydrodynamic model grids suc has LISFLOOD or HydroPol2D
+- **any single-band projected DEM** readable by `rasterio`
+- **optional FABDEM download and mosaicking** for users who do not already have a DEM
+- **D4 flow routing** for hydrodynamic model grids such as LISFLOOD or HydroPol2D
 - **Lin et al. 2020 global bankfull river width** data
 - **Manning-based Q2 depth estimation**
 - **spatial hydraulic-geometry calibration**
@@ -103,8 +108,9 @@ from terrain-conditioning changes such as breaching or local pit repair.
 
 ## Features
 
-- 🗺️ DEM resampling, NoData cleanup, selective smoothing, and hydrologic conditioning
-- 🧱 FABDEM download, tile mosaicking, AOI clipping, reprojection, and optional gap filling
+- 🗺️ DEM input from any `rasterio`-readable projected raster
+- 🧼 DEM resampling, NoData cleanup, selective smoothing, and hydrologic conditioning
+- 🧱 optional FABDEM download, tile mosaicking, AOI clipping, reprojection, and gap filling
 - 🌊 D4 flow direction, D4 flow accumulation, and river-mask extraction
 - 📏 Lin et al. 2020 river-width download and preprocessing
 - 📐 Manning-equation depth estimates from width, Q2, and slope
@@ -139,8 +145,8 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -e .
 ```
 
-Install the optional FABDEM downloader support when you want HydroBathyDEM to
-fetch FABDEM directly from catchment bounds:
+Install the optional FABDEM downloader support only when you want HydroBathyDEM
+to fetch FABDEM directly from catchment bounds:
 
 ```bash
 python3 -m pip install -e ".[fabdem]"
@@ -177,8 +183,9 @@ hydrobathydem-condition \
   --config examples/pune_catchment/configs/pune_30m_powerlaw_first_pass.json
 ```
 
-The mini case includes a small projected FABDEM tile, so it works immediately
-after cloning and installing the package. It writes outputs to:
+The mini case includes a small projected FABDEM tile as an example input DEM, so
+it works immediately after cloning and installing the package. FABDEM is not
+required by the core conditioning pipeline. It writes outputs to:
 
 ```text
 examples/pune_catchment/outputs/
@@ -190,6 +197,9 @@ point the config to it. The India configs use:
 ```text
 DEM_fabdem.tif
 ```
+
+That filename is only the example default; configs can point to any suitable
+projected DEM.
 
 Run the final workflow when Lin data and coefficient rasters already exist:
 
@@ -222,7 +232,8 @@ slope artifact mask   = 95th slope percentile
 The repository includes a small Pune-area test case built from
 `DEM_fabdem_pune.tif`. It is projected to `EPSG:32643`, uses 30 m cells, and is
 small enough to keep in GitHub. This lets a new user test the package without
-first downloading national DEM or Lin datasets.
+first downloading national DEM or Lin datasets. It is a bundled sample DEM, not
+a restriction on the DEM source used by HydroBathyDEM.
 
 ![Pune DEM conditioning stages](examples/pune_catchment/assets/pune_pipeline_stages.png)
 
@@ -270,10 +281,11 @@ See [`examples/pune_catchment/README.md`](examples/pune_catchment/README.md)
 for the full rebuild commands, Lin preprocessing command, and calibration
 notes.
 
-## Build A DEM From A Catchment
+## Optional FABDEM DEM Builder
 
-Users can either provide any projected DEM directly to the conditioning configs,
-or build one from a catchment/AOI vector using FABDEM.
+Users can provide any projected DEM directly to the conditioning configs. The
+command below is optional and is only for users who want HydroBathyDEM to build
+a DEM from FABDEM tiles using a catchment/AOI vector.
 
 Automatic FABDEM download uses the optional
 [`fabdem`](https://pypi.org/project/fabdem/) package, which accepts EPSG:4326
@@ -376,7 +388,7 @@ hydrobathydem-build-dem \
 
 Then point the conditioning config's `dem` field to the generated GeoTIFF.
 
-### 1. Build first-pass FABDEM-D4 drainage products
+### 1. Build first-pass DEM-D4 drainage products
 
 ```bash
 hydrobathydem-condition \
