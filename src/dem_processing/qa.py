@@ -213,6 +213,18 @@ def build_qa_scorecard(out_dir: Path, thresholds: Optional[Mapping[str, float]] 
         warn_if=float(habg.get("max", 0) or 0) > thresholds.get("habg_max_warn_m", 45.0),
         note="Near-cap values deserve inspection.",
     )
+    add(
+        "channel_bed_receiver_sill_cells_gt_0p01m",
+        creek.get("channel_bed_receiver_sill_cells_gt_0p01m"),
+        warn_if=float(creek.get("channel_bed_receiver_sill_cells_gt_0p01m", 0) or 0) > 0,
+        note="Neal channel-bed links that become uphill after RiverDepth is applied.",
+    )
+    add(
+        "channel_bed_receiver_sill_max_m",
+        creek.get("channel_bed_receiver_sill_max_m"),
+        warn_if=float(creek.get("channel_bed_receiver_sill_max_m", 0) or 0) > thresholds.get("channel_bed_sill_warn_m", 0.1),
+        note="Inspect D4_Neal_channel_receiver_sill_m.tif before using geometry in HydroPol2D.",
+    )
     add("d4_connected_components", conn.get("d4_connected_components"), note="4-neighbour river-mask components.")
     add(
         "largest_component_percent",

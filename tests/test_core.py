@@ -10,7 +10,12 @@ import rasterio
 from affine import Affine
 
 from dem_processing.config import config_to_cli_args, load_config_file
-from dem_processing.condition_dem import compute_equivalent_H_abg, compute_d4_flow_accumulation
+from dem_processing.condition_dem import (
+    condition_d4_channel_bed,
+    compute_d4_channel_bed_sills,
+    compute_d4_flow_accumulation,
+    compute_equivalent_H_abg,
+)
 from dem_processing.fabdem import choose_target_crs, parse_resolution
 from dem_processing.geometry_export import export_geometry_only_products
 from dem_processing.paths import output_path, output_theme
@@ -55,6 +60,33 @@ class CoreToolboxTests(unittest.TestCase):
         self.assertEqual(acc.shape, dem.shape)
         self.assertEqual(receiver.shape, dem.shape)
         self.assertGreaterEqual(float(np.nanmax(acc)), 3.0)
+
+    def test_d4_channel_bed_sill_flags_uphill_receiver(self) -> None:
+        dem = np.array([[10.0, 9.0, 8.0]], dtype="float32")
+        depth = np.array([[3.0, 0.1, 1.0]], dtype="float32")
+        river = np.array([[1, 1, 1]], dtype=bool)
+        receiver = np.array([[1, 2, -1]], dtype=np.int64)
+        bed, sill = compute_d4_channel_bed_sills(dem, depth, river, receiver)
+        self.assertAlmostEqual(float(bed[0, 0]), 7.0)
+        self.assertAlmostEqual(float(bed[0, 1]), 8.9, places=5)
+        self.assertAlmostEqual(float(sill[0, 0]), 1.9, places=5)
+        self.assertAlmostEqual(float(sill[0, 1]), 0.0)
+
+    def test_d4_channel_bed_conditioning_deepens_only_downstream_cells(self) -> None:
+        dem = np.array([[10.0, 9.0, 8.0]], dtype="float32")
+        depth = np.array([[3.0, 0.1, 1.0]], dtype="float32")
+        river = np.array([[1, 1, 1]], dtype=bool)
+        receiver = np.array([[1, 2, -1]], dtype=np.int64)
+        route = np.array([[10.0, 9.0, 8.0]], dtype="float32")
+        profile = {"transform": Affine.translation(0, 0) * Affine.scale(1, -1)}
+        conditioned, adjustment = condition_d4_channel_bed(
+            dem, depth, river, receiver, route, profile, min_slope=0.1, depth_cap_m=3.0,
+        )
+        self.assertAlmostEqual(float(conditioned[0, 0]), 3.0)
+        self.assertAlmostEqual(float(conditioned[0, 1]), 2.1, places=5)
+        self.assertAlmostEqual(float(conditioned[0, 2]), 1.2, places=5)
+        self.assertAlmostEqual(float(adjustment[0, 0]), 0.0)
+        self.assertAlmostEqual(float(adjustment[0, 1]), 2.0, places=5)
 
     def test_parse_fabdem_resolution(self) -> None:
         self.assertEqual(parse_resolution("30"), 30.0)

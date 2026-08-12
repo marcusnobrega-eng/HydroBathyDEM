@@ -912,6 +912,9 @@ class DEMConditioningConfig:
     river_width_cap_m: Optional[float] = None
     river_depth_cap_m: Optional[float] = None
     max_H_abg_m: float = 50.0
+    d4_routing_max_raise_m: Optional[float] = 5.0
+    condition_d4_channel_bed: bool = True
+    channel_bed_min_slope: float = 1e-5
 
     # Whitebox breaching
     use_least_cost_breaching: bool = True
@@ -1391,18 +1394,123 @@ def receiver_to_d4_direction(receiver: np.ndarray) -> np.ndarray:
     return direction
 
 
+def compute_d4_channel_bed_sills(
+    dem: np.ndarray,
+    river_depth: np.ndarray,
+    river_mask: np.ndarray,
+    receiver: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return Neal channel-bed elevation and uphill D4 receiver links in metres.
+
+    HydroPol2D's Neal solver routes channels over ``DEM - RiverDepth``.  The
+    river network, however, is derived before hydraulic geometry is applied.
+    This check identifies links that drain downhill on the routing DEM but
+    become uphill after the assigned channel depth is applied.  It deliberately
+    reports the issue without changing any geometry.
+    """
+    if not (dem.shape == river_depth.shape == river_mask.shape == receiver.shape):
+        raise ValueError("DEM, river depth, river mask, and D4 receiver must have the same shape.")
+
+    valid = river_mask & np.isfinite(dem) & np.isfinite(river_depth) & (river_depth > 0)
+    bed = np.full(dem.shape, np.nan, dtype="float64")
+    bed[valid] = dem[valid] - river_depth[valid]
+
+    flat_valid = valid.ravel()
+    flat_bed = bed.ravel()
+    flat_receiver = receiver.ravel()
+    source = np.flatnonzero(flat_valid & (flat_receiver >= 0) & (flat_receiver < flat_valid.size))
+    source = source[flat_valid[flat_receiver[source]]]
+
+    sill = np.full(flat_bed.size, np.nan, dtype="float64")
+    rise = flat_bed[flat_receiver[source]] - flat_bed[source]
+    sill[source] = np.maximum(rise, 0.0)
+    return bed, sill.reshape(dem.shape)
+
+
+def write_d4_channel_bed_qa(
+    dem: np.ndarray,
+    river_depth: np.ndarray,
+    river_mask: np.ndarray,
+    receiver: np.ndarray,
+    profile: dict,
+    out_dir: Path,
+) -> dict:
+    """Write a static Neal channel-bed QA raster and a compact summary."""
+    bed, sill = compute_d4_channel_bed_sills(dem, river_depth, river_mask, receiver)
+    write_raster(output_path(out_dir, "D4_Neal_channel_bed_elevation_m.tif"), bed.astype("float32"), profile, nodata=-9999.0)
+    write_raster(output_path(out_dir, "D4_Neal_channel_receiver_sill_m.tif"), sill.astype("float32"), profile, nodata=-9999.0)
+
+    values = sill[np.isfinite(sill)]
+    positive = values[values > 0.01]
+    summary = {
+        "channel_bed_receiver_links": int(values.size),
+        "channel_bed_receiver_sill_cells_gt_0p01m": int(positive.size),
+        "channel_bed_receiver_sill_max_m": float(np.nanmax(positive)) if positive.size else 0.0,
+        "channel_bed_receiver_sill_p99_m": float(np.nanpercentile(positive, 99)) if positive.size else 0.0,
+    }
+    pd.DataFrame([summary]).to_csv(output_path(out_dir, "D4_Neal_channel_bed_QA_summary.csv"), index=False)
+    return summary
+
+
+def condition_d4_channel_bed(
+    dem: np.ndarray,
+    river_depth: np.ndarray,
+    river_mask: np.ndarray,
+    receiver: np.ndarray,
+    routing_surface: np.ndarray,
+    profile: dict,
+    min_slope: float,
+    depth_cap_m: Optional[float],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Deepen only downstream channel cells needed for a D4-descending bed.
+
+    The receiver graph is ordered from high to low routing elevation.  At each
+    river link, the downstream bed is lowered only enough to preserve the
+    requested minimum gradient.  A depth cap remains authoritative; residual
+    inconsistencies are then visible in the post-condition QA rather than
+    being silently hidden.
+    """
+    if not (dem.shape == river_depth.shape == river_mask.shape == receiver.shape == routing_surface.shape):
+        raise ValueError("D4 channel-bed conditioning inputs must have the same shape.")
+
+    dx, dy = get_cellsize(profile)
+    drop = max(float(min_slope), 0.0) * min(dx, dy)
+    conditioned = river_depth.astype("float64", copy=True)
+    valid = river_mask & np.isfinite(dem) & np.isfinite(conditioned) & (conditioned > 0)
+    flat_valid = valid.ravel()
+    flat_dem = dem.ravel()
+    flat_depth = conditioned.ravel()
+    flat_receiver = receiver.ravel()
+    flat_route = routing_surface.ravel()
+    source = np.flatnonzero(flat_valid & (flat_receiver >= 0) & (flat_receiver < flat_valid.size))
+    source = source[flat_valid[flat_receiver[source]]]
+    source = source[np.argsort(flat_route[source])[::-1]]
+    cap = float(depth_cap_m) if depth_cap_m is not None else np.inf
+
+    for src in source:
+        dst = flat_receiver[src]
+        max_downstream_bed = flat_dem[src] - flat_depth[src] - drop
+        required_depth = flat_dem[dst] - max_downstream_bed
+        if required_depth > flat_depth[dst]:
+            flat_depth[dst] = min(required_depth, cap)
+
+    adjustment = conditioned - river_depth
+    return conditioned.astype("float32"), adjustment.astype("float32")
+
+
 def build_d4_monotonic_routing_surface(
     dem_in: Path,
     out_dir: Path,
     flat_increment: Optional[float],
+    max_raise_m: Optional[float],
 ) -> Path:
     """
-    Create a routing-only D4 surface with a tiny monotonic gradient to D4 outlets.
+    Create a routing-only D4 surface with a bounded artificial rise to D4 outlets.
 
     Whitebox conditioning is not guaranteed to leave a Float32 DEM with enough
     cardinal-neighbour relief for strict D4 routing. This priority-flood pass is
-    used only for stream-network extraction; bathymetry is still applied to the
-    hydrologically conditioned DEM, not to this artificial routing surface.
+    used only for stream-network extraction. ``max_raise_m`` prevents distant
+    mountain basins from being connected through an implausibly deep fill.
     """
     print_header("D4 routing surface conditioning")
 
@@ -1445,6 +1553,8 @@ def build_d4_monotonic_routing_surface(
 
     print(f"[INFO] D4 routing outlets/boundary cells = {len(boundary_idx):,}")
     print(f"[INFO] D4 routing flat increment = {eps:g} m")
+    if max_raise_m is not None:
+        print(f"[INFO] D4 routing maximum artificial raise = {float(max_raise_m):g} m")
 
     neighbour_offsets = (-cols, cols, -1, 1)
     processed = 0
@@ -1468,6 +1578,8 @@ def build_d4_monotonic_routing_surface(
                 continue
 
             new_elev = max(float(flat_dem[nidx]), elev + eps)
+            if max_raise_m is not None:
+                new_elev = min(new_elev, float(flat_dem[nidx]) + max(float(max_raise_m), 0.0))
             flat_filled[nidx] = new_elev
             flat_visited[nidx] = True
             heapq.heappush(heap, (new_elev, int(nidx)))
@@ -1809,6 +1921,29 @@ def automatic_d4_hydraulic_channel_carving(
     B[~np.isfinite(B)] = 0.0
     H[~np.isfinite(H)] = 0.0
 
+    dem_base, base_profile = read_raster(dem_to_carve)
+    base_nodata = base_profile.get("nodata", -9999.0)
+    valid_base = valid_mask(dem_base, base_nodata)
+    channel_depth_adjustment = np.zeros_like(H, dtype="float32")
+    if cfg.condition_d4_channel_bed:
+        H, channel_depth_adjustment = condition_d4_channel_bed(
+            dem_base,
+            H,
+            river_mask & valid_base,
+            receiver,
+            dem_route,
+            base_profile,
+            cfg.channel_bed_min_slope,
+            cfg.river_depth_cap_m,
+        )
+        H[~river_mask] = 0.0
+        write_raster(
+            output_path(out_dir, "D4_Neal_channel_depth_adjustment_m.tif"),
+            channel_depth_adjustment,
+            base_profile,
+            nodata=-9999.0,
+        )
+
     H_abg = compute_equivalent_H_abg(
         B,
         H,
@@ -1831,9 +1966,14 @@ def automatic_d4_hydraulic_channel_carving(
             "This is probably caused by unrealistic width/depth coefficients or too small a grid resolution."
         )
 
-    dem_base, base_profile = read_raster(dem_to_carve)
-    base_nodata = base_profile.get("nodata", -9999.0)
-    valid_base = valid_mask(dem_base, base_nodata)
+    channel_bed_qa = write_d4_channel_bed_qa(
+        dem_base,
+        H,
+        river_mask & valid_base,
+        receiver,
+        base_profile,
+        out_dir,
+    )
 
     carved = dem_base.copy()
     apply_mask = river_mask & valid_base & (H_abg > 0)
@@ -1878,6 +2018,12 @@ def automatic_d4_hydraulic_channel_carving(
     write_raster(out_dem, carved.astype("float32"), base_profile, nodata=base_nodata)
 
     geometry_mask = river_mask & (B > 0) & (H > 0) & (H_abg > 0)
+    adjusted = channel_depth_adjustment[geometry_mask & (channel_depth_adjustment > 0)]
+    channel_bed_conditioning_summary = {
+        "channel_bed_depth_adjusted_cells": int(adjusted.size),
+        "channel_bed_depth_adjustment_max_m": float(np.nanmax(adjusted)) if adjusted.size else 0.0,
+        "channel_bed_depth_adjustment_p99_m": float(np.nanpercentile(adjusted, 99)) if adjusted.size else 0.0,
+    }
 
     rows = []
     if np.any(geometry_mask):
@@ -1910,6 +2056,8 @@ def automatic_d4_hydraulic_channel_carving(
             "H_abg_min_m": float(np.nanmin(H_abg[geometry_mask])),
             "H_abg_mean_m": float(np.nanmean(H_abg[geometry_mask])),
             "H_abg_max_m": float(np.nanmax(H_abg[geometry_mask])),
+            **channel_bed_qa,
+            **channel_bed_conditioning_summary,
         })
     else:
         rows.append({
@@ -1932,6 +2080,8 @@ def automatic_d4_hydraulic_channel_carving(
             "alfa_2": cfg.alfa_2,
             "carve_mode": cfg.carve_mode,
             "effective_channel_cell_width_m": grid_width,
+            **channel_bed_qa,
+            **channel_bed_conditioning_summary,
         })
 
     summary = pd.DataFrame(rows)
@@ -2850,6 +3000,7 @@ def run_pipeline(cfg: DEMConditioningConfig) -> None:
             hydrologic_conditioned,
             out_dir,
             cfg.breach_flat_increment,
+            cfg.d4_routing_max_raise_m,
         )
         terrain_before_vector_enforcement = automatic_d4_hydraulic_channel_carving(
             cfg,
@@ -3017,6 +3168,12 @@ Print full documentation:
                    help="Optional cap on estimated river depth in meters.")
     p.add_argument("--max-H-abg-m", "--max-carve-depth-m", dest="max_H_abg_m", type=float, default=50.0,
                    help="Safety cap for HydroPol2D H_abg, the DEM reduction depth in creeks [m].")
+    p.add_argument("--d4-routing-max-raise-m", type=float, default=5.0,
+                   help="Maximum artificial elevation raise used only for D4 network extraction; use 0 for no raising.")
+    p.add_argument("--no-condition-d4-channel-bed", action="store_true",
+                   help="Disable downstream subgrid-bed conditioning after D4 geometry is assigned.")
+    p.add_argument("--channel-bed-min-slope", type=float, default=1e-5,
+                   help="Minimum downstream Neal channel-bed slope imposed along D4 links.")
 
     p.add_argument("--no-least-cost-breaching", action="store_true")
     p.add_argument("--breach-dist-cells", type=int, default=10000)
@@ -3101,6 +3258,9 @@ Print full documentation:
     put("river_width_cap_m", a.river_width_cap_m, "--river-width-cap-m")
     put("river_depth_cap_m", a.river_depth_cap_m, "--river-depth-cap-m")
     put("max_H_abg_m", a.max_H_abg_m, "--max-H-abg-m", "--max-carve-depth-m")
+    put("d4_routing_max_raise_m", a.d4_routing_max_raise_m, "--d4-routing-max-raise-m")
+    put("condition_d4_channel_bed", not a.no_condition_d4_channel_bed, "--no-condition-d4-channel-bed")
+    put("channel_bed_min_slope", a.channel_bed_min_slope, "--channel-bed-min-slope")
     put("use_least_cost_breaching", not a.no_least_cost_breaching, "--no-least-cost-breaching")
     put("breach_dist_cells", a.breach_dist_cells, "--breach-dist-cells")
     put("breach_max_cost", a.breach_max_cost, "--breach-max-cost")
