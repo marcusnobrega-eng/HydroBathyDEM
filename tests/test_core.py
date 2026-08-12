@@ -123,6 +123,31 @@ class CoreToolboxTests(unittest.TestCase):
         self.assertAlmostEqual(float(area[0, 0]), 100.0)
         self.assertAlmostEqual(float(area[0, 1]), 200.0)
 
+    def test_external_network_can_snap_to_local_dem_low(self) -> None:
+        profile = {
+            "height": 3,
+            "width": 4,
+            "crs": "EPSG:32643",
+            "transform": Affine.translation(0, 3) * Affine.scale(1, -1),
+        }
+        reaches = gpd.GeoDataFrame(
+            {
+                "HYRIV_ID": [1], "NEXT_DOWN": [0], "UPLAND_SKM": [100.0],
+                "geometry": [LineString([(0.2, 2.5), (3.2, 2.5)])],
+            },
+            crs=profile["crs"],
+        )
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "reach.geojson"
+            reaches.to_file(path, driver="GeoJSON")
+            mask, receiver, _ = build_external_d4_river_network(
+                str(path), profile, 50.0, "HYRIV_ID", "NEXT_DOWN", "UPLAND_SKM",
+                elevation=np.array([[10, 10, 10, 10], [0, 0, 0, 0], [10, 10, 10, 10]], dtype=float),
+                snap_radius_cells=1,
+            )
+        self.assertTrue(np.all(mask[1, :3]))
+        self.assertEqual(int(receiver[1, 0]), 5)
+
     def test_parse_fabdem_resolution(self) -> None:
         self.assertEqual(parse_resolution("30"), 30.0)
         self.assertEqual(parse_resolution("30,60"), (30.0, 60.0))

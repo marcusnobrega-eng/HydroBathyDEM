@@ -901,6 +901,7 @@ class DEMConditioningConfig:
     external_network_id_field: str = "HYRIV_ID"
     external_network_next_down_field: str = "NEXT_DOWN"
     external_network_area_field: str = "UPLAND_SKM"
+    external_network_snap_radius_cells: int = 1
     spatial_beta_1_raster: Optional[str] = None
     spatial_beta_2_raster: Optional[str] = None
     spatial_alfa_1_raster: Optional[str] = None
@@ -1442,6 +1443,32 @@ def _d4_cells_between_cells(start: int, end: int, cols: int) -> list[int]:
     return cells
 
 
+def _snap_d4_cells_to_local_lowest(
+    cells: list[int],
+    elevation: np.ndarray,
+    nodata: float,
+    radius: int,
+) -> list[int]:
+    """Snap a coarse centreline cell to its lowest valid local DEM cell."""
+    if radius <= 0:
+        return cells
+    rows, cols = elevation.shape
+    snapped: list[int] = []
+    for cell in cells:
+        row, col = divmod(cell, cols)
+        r0, r1 = max(0, row - radius), min(rows, row + radius + 1)
+        c0, c1 = max(0, col - radius), min(cols, col + radius + 1)
+        window = elevation[r0:r1, c0:c1]
+        valid = np.isfinite(window) & (window != nodata)
+        if np.any(valid):
+            candidate = np.where(valid, window, np.inf)
+            wr, wc = np.unravel_index(np.argmin(candidate), candidate.shape)
+            cell = (r0 + wr) * cols + c0 + wc
+        if not snapped or snapped[-1] != cell:
+            snapped.append(cell)
+    return snapped
+
+
 def build_external_d4_river_network(
     vector_path: str,
     profile: dict,
@@ -1449,6 +1476,9 @@ def build_external_d4_river_network(
     id_field: str,
     next_down_field: str,
     area_field: str,
+    elevation: Optional[np.ndarray] = None,
+    nodata: float = -9999.0,
+    snap_radius_cells: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build a D4 network from directed reaches such as HydroRIVERS.
 
@@ -1487,6 +1517,8 @@ def build_external_d4_river_network(
         if geom.geom_type != "LineString":
             continue
         cells = _d4_line_cells(np.asarray(geom.coords), profile["transform"], (rows, cols))
+        if elevation is not None:
+            cells = _snap_d4_cells_to_local_lowest(cells, elevation, nodata, snap_radius_cells)
         if not cells:
             continue
         rid = record[id_field]
@@ -1512,6 +1544,11 @@ def build_external_d4_river_network(
         downstream = paths.get(next_down.get(rid))
         if downstream and cells[-1] != downstream[0]:
             bridge = _d4_cells_between_cells(cells[-1], downstream[0], cols)
+            if len(bridge) > 9:
+                warnings.warn(
+                    f"Skipping a nonlocal external-network bridge of {len(bridge) - 1} D4 cells for reach {rid}."
+                )
+                continue
             for cell in bridge:
                 mask[cell] = True
                 if weight > owner_area[cell]:
@@ -1952,6 +1989,9 @@ def automatic_d4_hydraulic_channel_carving(
             cfg.external_network_id_field,
             cfg.external_network_next_down_field,
             cfg.external_network_area_field,
+            dem_route,
+            nodata,
+            cfg.external_network_snap_radius_cells,
         )
         acc_cells = fac_area * 1_000_000.0 / cell_area_m2
         print(f"[INFO] directed external river network = {cfg.external_river_network}")
@@ -3310,6 +3350,8 @@ Print full documentation:
                    help="Downstream reach-ID field in --external-river-network.")
     p.add_argument("--external-network-area-field", default="UPLAND_SKM",
                    help="Upstream drainage-area field [km2] in --external-river-network.")
+    p.add_argument("--external-network-snap-radius-cells", type=int, default=1,
+                   help="Local DEM snap radius for external-network centreline cells (default: 1).")
     p.add_argument("--external-geometry-min-width-m", type=float, default=1.0,
                    help="Minimum valid external width in meters.")
     p.add_argument("--external-geometry-min-depth-m", type=float, default=0.01,
@@ -3420,6 +3462,7 @@ Print full documentation:
     put("external_network_id_field", a.external_network_id_field, "--external-network-id-field")
     put("external_network_next_down_field", a.external_network_next_down_field, "--external-network-next-down-field")
     put("external_network_area_field", a.external_network_area_field, "--external-network-area-field")
+    put("external_network_snap_radius_cells", a.external_network_snap_radius_cells, "--external-network-snap-radius-cells")
     put("external_geometry_min_width_m", a.external_geometry_min_width_m, "--external-geometry-min-width-m")
     put("external_geometry_min_depth_m", a.external_geometry_min_depth_m, "--external-geometry-min-depth-m")
     put("spatial_beta_1_raster", a.spatial_beta_1_raster, "--spatial-beta-1-raster")
