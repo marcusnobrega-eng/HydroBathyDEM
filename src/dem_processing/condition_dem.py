@@ -1469,6 +1469,15 @@ def _snap_d4_cells_to_local_lowest(
     return snapped
 
 
+def _connect_d4_cells(cells: list[int], cols: int) -> list[int]:
+    """Insert cardinal cells between snapped centreline locations."""
+    connected: list[int] = []
+    for start, end in zip(cells[:-1], cells[1:]):
+        segment = _d4_cells_between_cells(start, end, cols)
+        connected.extend(segment if not connected else segment[1:])
+    return connected or cells
+
+
 def build_external_d4_river_network(
     vector_path: str,
     profile: dict,
@@ -1519,6 +1528,7 @@ def build_external_d4_river_network(
         cells = _d4_line_cells(np.asarray(geom.coords), profile["transform"], (rows, cols))
         if elevation is not None:
             cells = _snap_d4_cells_to_local_lowest(cells, elevation, nodata, snap_radius_cells)
+            cells = _connect_d4_cells(cells, cols)
         if not cells:
             continue
         rid = record[id_field]
