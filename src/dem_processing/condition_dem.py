@@ -1515,7 +1515,7 @@ def build_external_d4_river_network(
         raise ValueError("No external river reaches remain after domain clip and upstream-area filtering.")
 
     rows, cols = profile["height"], profile["width"]
-    paths: dict[object, list[int]] = {}
+    coordinates: dict[object, np.ndarray] = {}
     areas: dict[object, float] = {}
     next_down: dict[object, object] = {}
     for row in gdf.itertuples(index=False):
@@ -1525,18 +1525,41 @@ def build_external_d4_river_network(
             geom = max(geom.geoms, key=lambda part: part.length)
         if geom.geom_type != "LineString":
             continue
-        cells = _d4_line_cells(np.asarray(geom.coords), profile["transform"], (rows, cols))
+        rid = record[id_field]
+        coordinates[rid] = np.asarray(geom.coords)
+        areas[rid] = float(record[area_field])
+        next_down[rid] = record[next_down_field]
+    if not coordinates:
+        raise ValueError("No external river reaches intersect the model grid.")
+
+    upstream: dict[object, list[object]] = {}
+    for rid, downstream_id in next_down.items():
+        if downstream_id in coordinates:
+            upstream.setdefault(downstream_id, []).append(rid)
+
+    def endpoint_distance(a: np.ndarray, b: np.ndarray) -> float:
+        return float(min(np.linalg.norm(a - b[0]), np.linalg.norm(a - b[-1])))
+
+    paths: dict[object, list[int]] = {}
+    for rid, coords in coordinates.items():
+        downstream = coordinates.get(next_down[rid])
+        if downstream is not None:
+            if endpoint_distance(coords[0], downstream) < endpoint_distance(coords[-1], downstream):
+                coords = coords[::-1]
+        elif rid in upstream:
+            upstream_coords = [coordinates[up] for up in upstream[rid]]
+            start_distance = min(endpoint_distance(coords[0], up) for up in upstream_coords)
+            end_distance = min(endpoint_distance(coords[-1], up) for up in upstream_coords)
+            if end_distance < start_distance:
+                coords = coords[::-1]
+        cells = _d4_line_cells(coords, profile["transform"], (rows, cols))
         if elevation is not None:
             cells = _snap_d4_cells_to_local_lowest(cells, elevation, nodata, snap_radius_cells)
             cells = _connect_d4_cells(cells, cols)
-        if not cells:
-            continue
-        rid = record[id_field]
-        paths[rid] = cells
-        areas[rid] = float(record[area_field])
-        next_down[rid] = record[next_down_field]
+        if cells:
+            paths[rid] = cells
     if not paths:
-        raise ValueError("No external river reaches intersect the model grid.")
+        raise ValueError("No external river reaches remain after rasterization.")
 
     receiver = np.full(rows * cols, -1, dtype=np.int64)
     owner_area = np.full(rows * cols, -np.inf, dtype="float64")

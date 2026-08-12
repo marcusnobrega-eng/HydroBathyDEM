@@ -104,7 +104,7 @@ class CoreToolboxTests(unittest.TestCase):
                 "NEXT_DOWN": [2, 0],
                 "UPLAND_SKM": [100.0, 200.0],
                 "geometry": [
-                    LineString([(0.2, 2.5), (1.2, 2.5)]),
+                    LineString([(1.2, 2.5), (0.2, 2.5)]),
                     LineString([(1.2, 2.5), (3.2, 2.5)]),
                 ],
             },
