@@ -901,7 +901,7 @@ class DEMConditioningConfig:
     external_network_id_field: str = "HYRIV_ID"
     external_network_next_down_field: str = "NEXT_DOWN"
     external_network_area_field: str = "UPLAND_SKM"
-    external_network_snap_radius_cells: int = 1
+    external_network_snap_radius_cells: int = 0
     spatial_beta_1_raster: Optional[str] = None
     spatial_beta_2_raster: Optional[str] = None
     spatial_alfa_1_raster: Optional[str] = None
@@ -3383,8 +3383,8 @@ Print full documentation:
                    help="Downstream reach-ID field in --external-river-network.")
     p.add_argument("--external-network-area-field", default="UPLAND_SKM",
                    help="Upstream drainage-area field [km2] in --external-river-network.")
-    p.add_argument("--external-network-snap-radius-cells", type=int, default=1,
-                   help="Local DEM snap radius for external-network centreline cells (default: 1).")
+    p.add_argument("--external-network-snap-radius-cells", type=int, default=0,
+                   help="Optional local DEM snap radius for external-network centreline cells (default: 0).")
     p.add_argument("--external-geometry-min-width-m", type=float, default=1.0,
                    help="Minimum valid external width in meters.")
     p.add_argument("--external-geometry-min-depth-m", type=float, default=0.01,
