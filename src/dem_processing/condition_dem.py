@@ -348,6 +348,15 @@ Use `external_or_power_law` to use external width/depth where they overlap the
 D4 river mask, while keeping the HydroPol2D power-law values for river cells
 that do not overlap the external rasters.
 
+For coarse domains where DEM-only routing creates implausible cross-ridge links,
+the D4 network itself can be supplied as directed reaches:
+
+    --external-river-network /path/to/HydroRIVERS_as.shp
+
+The default fields match HydroRIVERS v1.0: `HYRIV_ID`, `NEXT_DOWN`, and
+`UPLAND_SKM`. Reaches are snapped to cardinal grid cells, so the external data
+sets network topology while the model DEM still supplies channel elevations.
+
 Spatially calibrated coefficient rasters can also be used:
 
     --river-geometry-source spatial_coefficients_or_power_law
@@ -888,6 +897,10 @@ class DEMConditioningConfig:
     external_river_depth_raster: Optional[str] = None
     external_geometry_min_width_m: float = 1.0
     external_geometry_min_depth_m: float = 0.01
+    external_river_network: Optional[str] = None
+    external_network_id_field: str = "HYRIV_ID"
+    external_network_next_down_field: str = "NEXT_DOWN"
+    external_network_area_field: str = "UPLAND_SKM"
     spatial_beta_1_raster: Optional[str] = None
     spatial_beta_2_raster: Optional[str] = None
     spatial_alfa_1_raster: Optional[str] = None
@@ -1394,6 +1407,123 @@ def receiver_to_d4_direction(receiver: np.ndarray) -> np.ndarray:
     return direction
 
 
+def _d4_line_cells(coords: np.ndarray, transform: Affine, shape: tuple[int, int]) -> list[int]:
+    """Snap a line to an ordered, cardinal-neighbour sequence of grid cells."""
+    rows, cols = shape
+    cells: list[int] = []
+    for x0, y0, x1, y1 in zip(coords[:-1, 0], coords[:-1, 1], coords[1:, 0], coords[1:, 1]):
+        r0, c0 = rasterio.transform.rowcol(transform, x0, y0)
+        r1, c1 = rasterio.transform.rowcol(transform, x1, y1)
+        r, c = int(r0), int(c0)
+        target_r, target_c = int(r1), int(c1)
+        if 0 <= r < rows and 0 <= c < cols and (not cells or cells[-1] != r * cols + c):
+            cells.append(r * cols + c)
+        while (r, c) != (target_r, target_c):
+            if abs(target_c - c) >= abs(target_r - r) and c != target_c:
+                c += 1 if target_c > c else -1
+            elif r != target_r:
+                r += 1 if target_r > r else -1
+            if 0 <= r < rows and 0 <= c < cols and (not cells or cells[-1] != r * cols + c):
+                cells.append(r * cols + c)
+    return cells
+
+
+def _d4_cells_between_cells(start: int, end: int, cols: int) -> list[int]:
+    """Return the inclusive cardinal path between two already-snapped cells."""
+    r, c = divmod(start, cols)
+    target_r, target_c = divmod(end, cols)
+    cells = [start]
+    while (r, c) != (target_r, target_c):
+        if abs(target_c - c) >= abs(target_r - r) and c != target_c:
+            c += 1 if target_c > c else -1
+        elif r != target_r:
+            r += 1 if target_r > r else -1
+        cells.append(r * cols + c)
+    return cells
+
+
+def build_external_d4_river_network(
+    vector_path: str,
+    profile: dict,
+    min_area_km2: float,
+    id_field: str,
+    next_down_field: str,
+    area_field: str,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Build a D4 network from directed reaches such as HydroRIVERS.
+
+    The input lines must be directed upstream-to-downstream and contain a
+    reach ID plus the ID of the next downstream reach.  At confluences, the
+    largest upstream-area reach owns the single HydroPol D4 receiver; smaller
+    tributaries terminate in that shared coarse cell and still contribute to
+    its geometry/location.
+    """
+    if gpd is None:
+        raise ImportError("geopandas is required for an external directed river network.")
+    gdf = gpd.read_file(vector_path)
+    required = [id_field, next_down_field, area_field]
+    missing = [field for field in required if field not in gdf.columns]
+    if missing:
+        raise ValueError(f"External river network is missing required fields: {', '.join(missing)}")
+    if gdf.crs is None:
+        raise ValueError(f"External river network has no CRS: {vector_path}")
+    gdf = gdf.to_crs(profile["crs"])
+    bounds = rasterio.transform.array_bounds(profile["height"], profile["width"], profile["transform"])
+    gdf = gdf.cx[bounds[0]:bounds[2], bounds[1]:bounds[3]].copy()
+    gdf[area_field] = pd.to_numeric(gdf[area_field], errors="coerce")
+    gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty & (gdf[area_field] >= min_area_km2)]
+    if gdf.empty:
+        raise ValueError("No external river reaches remain after domain clip and upstream-area filtering.")
+
+    rows, cols = profile["height"], profile["width"]
+    paths: dict[object, list[int]] = {}
+    areas: dict[object, float] = {}
+    next_down: dict[object, object] = {}
+    for row in gdf.itertuples(index=False):
+        record = row._asdict()
+        geom = record["geometry"]
+        if geom.geom_type == "MultiLineString":
+            geom = max(geom.geoms, key=lambda part: part.length)
+        if geom.geom_type != "LineString":
+            continue
+        cells = _d4_line_cells(np.asarray(geom.coords), profile["transform"], (rows, cols))
+        if not cells:
+            continue
+        rid = record[id_field]
+        paths[rid] = cells
+        areas[rid] = float(record[area_field])
+        next_down[rid] = record[next_down_field]
+    if not paths:
+        raise ValueError("No external river reaches intersect the model grid.")
+
+    receiver = np.full(rows * cols, -1, dtype=np.int64)
+    owner_area = np.full(rows * cols, -np.inf, dtype="float64")
+    area = np.full(rows * cols, np.nan, dtype="float64")
+    mask = np.zeros(rows * cols, dtype=bool)
+    candidates: list[tuple[int, int, float]] = []
+    for rid, cells in paths.items():
+        weight = areas[rid]
+        for cell in cells:
+            mask[cell] = True
+            if weight > owner_area[cell]:
+                owner_area[cell] = weight
+                area[cell] = weight
+        candidates.extend((src, dst, weight) for src, dst in zip(cells[:-1], cells[1:]) if src != dst)
+        downstream = paths.get(next_down.get(rid))
+        if downstream and cells[-1] != downstream[0]:
+            bridge = _d4_cells_between_cells(cells[-1], downstream[0], cols)
+            for cell in bridge:
+                mask[cell] = True
+                if weight > owner_area[cell]:
+                    owner_area[cell] = weight
+                    area[cell] = weight
+            candidates.extend((src, dst, weight) for src, dst in zip(bridge[:-1], bridge[1:]))
+    for src, dst, weight in candidates:
+        if src != dst and weight >= owner_area[src]:
+            receiver[src] = dst
+    return mask.reshape(rows, cols), receiver.reshape(rows, cols), area.reshape(rows, cols)
+
+
 def compute_d4_channel_bed_sills(
     dem: np.ndarray,
     river_depth: np.ndarray,
@@ -1461,6 +1591,7 @@ def condition_d4_channel_bed(
     profile: dict,
     min_slope: float,
     depth_cap_m: Optional[float],
+    topology_order: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Deepen only downstream channel cells needed for a D4-descending bed.
 
@@ -1484,7 +1615,22 @@ def condition_d4_channel_bed(
     flat_route = routing_surface.ravel()
     source = np.flatnonzero(flat_valid & (flat_receiver >= 0) & (flat_receiver < flat_valid.size))
     source = source[flat_valid[flat_receiver[source]]]
-    source = source[np.argsort(flat_route[source])[::-1]]
+    if topology_order:
+        indegree = np.zeros(flat_valid.size, dtype=np.int32)
+        np.add.at(indegree, flat_receiver[source], 1)
+        pending = list(np.flatnonzero(flat_valid & (indegree == 0)))
+        ordered: list[int] = []
+        while pending:
+            src = pending.pop()
+            ordered.append(src)
+            dst = flat_receiver[src]
+            if dst >= 0 and flat_valid[dst]:
+                indegree[dst] -= 1
+                if indegree[dst] == 0:
+                    pending.append(int(dst))
+        source = np.asarray([idx for idx in ordered if flat_receiver[idx] >= 0 and flat_valid[flat_receiver[idx]]], dtype=np.int64)
+    else:
+        source = source[np.argsort(flat_route[source])[::-1]]
     cap = float(depth_cap_m) if depth_cap_m is not None else np.inf
 
     for src in source:
@@ -1797,10 +1943,22 @@ def automatic_d4_hydraulic_channel_carving(
     print(f"[INFO] cell size dx={dx:.3f} m, dy={dy:.3f} m")
     print(f"[INFO] effective channel cell width = {grid_width:.3f} m")
 
-    acc_cells, receiver = compute_d4_flow_accumulation(dem_route, profile, nodata)
-    fac_area = acc_cells * cell_area_m2 / 1_000_000.0
-
-    river_mask = np.isfinite(fac_area) & (fac_area >= cfg.min_area)
+    external_network_used = bool(cfg.external_river_network)
+    if external_network_used:
+        river_mask, receiver, fac_area = build_external_d4_river_network(
+            cfg.external_river_network,
+            profile,
+            cfg.min_area,
+            cfg.external_network_id_field,
+            cfg.external_network_next_down_field,
+            cfg.external_network_area_field,
+        )
+        acc_cells = fac_area * 1_000_000.0 / cell_area_m2
+        print(f"[INFO] directed external river network = {cfg.external_river_network}")
+    else:
+        acc_cells, receiver = compute_d4_flow_accumulation(dem_route, profile, nodata)
+        fac_area = acc_cells * cell_area_m2 / 1_000_000.0
+        river_mask = np.isfinite(fac_area) & (fac_area >= cfg.min_area)
     n_river = int(river_mask.sum())
     n_valid = int(valid_mask(dem_route, nodata).sum())
 
@@ -1935,6 +2093,7 @@ def automatic_d4_hydraulic_channel_carving(
             base_profile,
             cfg.channel_bed_min_slope,
             cfg.river_depth_cap_m,
+            topology_order=external_network_used,
         )
         H[~river_mask] = 0.0
         write_raster(
@@ -1988,6 +2147,8 @@ def automatic_d4_hydraulic_channel_carving(
     write_raster(output_path(out_dir, "D4_Wshed_Properties_River_Width_m.tif"), B.astype("float32"), profile, nodata=-9999.0)
     write_raster(output_path(out_dir, "D4_Wshed_Properties_River_Depth_m.tif"), H.astype("float32"), profile, nodata=-9999.0)
     write_raster(output_path(out_dir, "D4_H_abg_m.tif"), H_abg.astype("float32"), profile, nodata=-9999.0)
+    if external_network_used:
+        write_raster(output_path(out_dir, "D4_external_network_used.tif"), river_mask.astype("float32"), profile, nodata=-9999.0)
     if cfg.river_geometry_source in {"external", "external_or_power_law"}:
         write_raster(
             output_path(out_dir, "D4_external_geometry_available.tif"),
@@ -2946,6 +3107,8 @@ def print_run_summary(cfg: DEMConditioningConfig, out_dir: Path) -> None:
         print(f"  GIS_data.alfa_1      : {cfg.alfa_1}")
         print(f"  GIS_data.alfa_2      : {cfg.alfa_2}")
         print(f"  carve_mode           : {cfg.carve_mode}")
+        if cfg.external_river_network:
+            print(f"  external_network     : {cfg.external_river_network}")
     print(f"Vector stream burn     : {bool(cfg.streams and cfg.stream_burn_depth_m > 0)}")
     print(f"Crossing/culvert burn  : {bool(cfg.crossings and cfg.crossing_burn_depth_m > 0)}")
     print(f"Least-cost breaching   : {cfg.use_least_cost_breaching}")
@@ -2996,12 +3159,15 @@ def run_pipeline(cfg: DEMConditioningConfig) -> None:
 
     terrain_before_vector_enforcement = hydrologic_conditioned
     if cfg.auto_rivers_d4:
-        d4_routing_surface = build_d4_monotonic_routing_surface(
-            hydrologic_conditioned,
-            out_dir,
-            cfg.breach_flat_increment,
-            cfg.d4_routing_max_raise_m,
-        )
+        if cfg.external_river_network:
+            d4_routing_surface = hydrologic_conditioned
+        else:
+            d4_routing_surface = build_d4_monotonic_routing_surface(
+                hydrologic_conditioned,
+                out_dir,
+                cfg.breach_flat_increment,
+                cfg.d4_routing_max_raise_m,
+            )
         terrain_before_vector_enforcement = automatic_d4_hydraulic_channel_carving(
             cfg,
             dem_to_carve=hydrologic_conditioned,
@@ -3136,6 +3302,14 @@ Print full documentation:
                    help="External bankfull river-width raster aligned to, or resampleable onto, the DEM grid.")
     p.add_argument("--external-river-depth-raster", default=None,
                    help="External river-depth raster aligned to, or resampleable onto, the DEM grid.")
+    p.add_argument("--external-river-network", default=None,
+                   help="Directed river reaches (for example HydroRIVERS) used for D4 topology instead of DEM-derived routing.")
+    p.add_argument("--external-network-id-field", default="HYRIV_ID",
+                   help="Unique reach-ID field in --external-river-network.")
+    p.add_argument("--external-network-next-down-field", default="NEXT_DOWN",
+                   help="Downstream reach-ID field in --external-river-network.")
+    p.add_argument("--external-network-area-field", default="UPLAND_SKM",
+                   help="Upstream drainage-area field [km2] in --external-river-network.")
     p.add_argument("--external-geometry-min-width-m", type=float, default=1.0,
                    help="Minimum valid external width in meters.")
     p.add_argument("--external-geometry-min-depth-m", type=float, default=0.01,
@@ -3242,6 +3416,10 @@ Print full documentation:
     put("river_geometry_source", a.river_geometry_source, "--river-geometry-source")
     put("external_river_width_raster", a.external_river_width_raster, "--external-river-width-raster")
     put("external_river_depth_raster", a.external_river_depth_raster, "--external-river-depth-raster")
+    put("external_river_network", a.external_river_network, "--external-river-network")
+    put("external_network_id_field", a.external_network_id_field, "--external-network-id-field")
+    put("external_network_next_down_field", a.external_network_next_down_field, "--external-network-next-down-field")
+    put("external_network_area_field", a.external_network_area_field, "--external-network-area-field")
     put("external_geometry_min_width_m", a.external_geometry_min_width_m, "--external-geometry-min-width-m")
     put("external_geometry_min_depth_m", a.external_geometry_min_depth_m, "--external-geometry-min-depth-m")
     put("spatial_beta_1_raster", a.spatial_beta_1_raster, "--spatial-beta-1-raster")

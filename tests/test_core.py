@@ -8,9 +8,12 @@ from pathlib import Path
 import numpy as np
 import rasterio
 from affine import Affine
+from shapely.geometry import LineString
+import geopandas as gpd
 
 from dem_processing.config import config_to_cli_args, load_config_file
 from dem_processing.condition_dem import (
+    build_external_d4_river_network,
     condition_d4_channel_bed,
     compute_d4_channel_bed_sills,
     compute_d4_flow_accumulation,
@@ -87,6 +90,38 @@ class CoreToolboxTests(unittest.TestCase):
         self.assertAlmostEqual(float(conditioned[0, 2]), 1.2, places=5)
         self.assertAlmostEqual(float(adjustment[0, 0]), 0.0)
         self.assertAlmostEqual(float(adjustment[0, 1]), 2.0, places=5)
+
+    def test_external_network_builds_directed_d4_receivers(self) -> None:
+        profile = {
+            "height": 3,
+            "width": 5,
+            "crs": "EPSG:32643",
+            "transform": Affine.translation(0, 3) * Affine.scale(1, -1),
+        }
+        reaches = gpd.GeoDataFrame(
+            {
+                "HYRIV_ID": [1, 2],
+                "NEXT_DOWN": [2, 0],
+                "UPLAND_SKM": [100.0, 200.0],
+                "geometry": [
+                    LineString([(0.2, 2.5), (1.2, 2.5)]),
+                    LineString([(1.2, 2.5), (3.2, 2.5)]),
+                ],
+            },
+            crs=profile["crs"],
+        )
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "reaches.geojson"
+            reaches.to_file(path, driver="GeoJSON")
+            mask, receiver, area = build_external_d4_river_network(
+                str(path), profile, 50.0, "HYRIV_ID", "NEXT_DOWN", "UPLAND_SKM",
+            )
+        self.assertTrue(np.all(mask[0, :4]))
+        self.assertEqual(int(receiver[0, 0]), 1)
+        self.assertEqual(int(receiver[0, 1]), 2)
+        self.assertEqual(int(receiver[0, 2]), 3)
+        self.assertAlmostEqual(float(area[0, 0]), 100.0)
+        self.assertAlmostEqual(float(area[0, 1]), 200.0)
 
     def test_parse_fabdem_resolution(self) -> None:
         self.assertEqual(parse_resolution("30"), 30.0)
