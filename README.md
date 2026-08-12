@@ -458,6 +458,21 @@ hydrobathydem-export-geometry \
 Use this when you want the conditioned DEM before bathymetry lowering and
 separate river-width/depth rasters for the D4 river cells.
 
+### 6. Optional external river topology
+
+At coarse resolution, use a directed reach network when DEM-only D4 extraction
+would connect channels across ridges. HydroRIVERS v1 works without field
+renaming:
+
+```bash
+hydrobathydem-condition --config case.json \
+  --external-river-network Data/HydroRIVERS_v10_as.shp
+```
+
+The network supplies the downstream topology (`HYRIV_ID`, `NEXT_DOWN`) and
+upstream area (`UPLAND_SKM`); it does not supply river elevations. Inspect the
+channel-bed sill QA before adopting the output, especially in steep terrain.
+
 ## Outputs
 
 HydroBathyDEM organizes generated products by theme:
@@ -478,6 +493,7 @@ Outputs/d4/
   D4_flow_accum_cells.tif
   D4_Wshed_Properties_fac_area_km2.tif
   D4_idx_facc.tif
+  D4_external_network_used.tif
   D4_Wshed_Properties_River_Width_m.tif
   D4_Wshed_Properties_River_Depth_m.tif
   D4_River_Width_river_cells_m.tif
