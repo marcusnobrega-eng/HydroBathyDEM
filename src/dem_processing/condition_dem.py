@@ -912,7 +912,7 @@ class DEMConditioningConfig:
     river_width_cap_m: Optional[float] = None
     river_depth_cap_m: Optional[float] = None
     max_H_abg_m: float = 50.0
-    d4_routing_max_raise_m: Optional[float] = 5.0
+    d4_routing_max_raise_m: Optional[float] = None
     condition_d4_channel_bed: bool = True
     channel_bed_min_slope: float = 1e-5
 
@@ -3168,8 +3168,8 @@ Print full documentation:
                    help="Optional cap on estimated river depth in meters.")
     p.add_argument("--max-H-abg-m", "--max-carve-depth-m", dest="max_H_abg_m", type=float, default=50.0,
                    help="Safety cap for HydroPol2D H_abg, the DEM reduction depth in creeks [m].")
-    p.add_argument("--d4-routing-max-raise-m", type=float, default=5.0,
-                   help="Maximum artificial elevation raise used only for D4 network extraction; use 0 for no raising.")
+    p.add_argument("--d4-routing-max-raise-m", type=float, default=None,
+                   help="Optional maximum artificial elevation raise used only for D4 network extraction.")
     p.add_argument("--no-condition-d4-channel-bed", action="store_true",
                    help="Disable downstream subgrid-bed conditioning after D4 geometry is assigned.")
     p.add_argument("--channel-bed-min-slope", type=float, default=1e-5,
