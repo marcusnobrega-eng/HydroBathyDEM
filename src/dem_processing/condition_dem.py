@@ -902,6 +902,7 @@ class DEMConditioningConfig:
     external_network_next_down_field: str = "NEXT_DOWN"
     external_network_area_field: str = "UPLAND_SKM"
     external_network_snap_radius_cells: int = 0
+    external_network_profile_from_source_dem: bool = False
     spatial_beta_1_raster: Optional[str] = None
     spatial_beta_2_raster: Optional[str] = None
     spatial_alfa_1_raster: Optional[str] = None
@@ -1476,6 +1477,79 @@ def _connect_d4_cells(cells: list[int], cols: int) -> list[int]:
         segment = _d4_cells_between_cells(start, end, cols)
         connected.extend(segment if not connected else segment[1:])
     return connected or cells
+
+
+def _directed_d4_order(valid: np.ndarray, receiver: np.ndarray) -> np.ndarray:
+    """Return channel cells ordered from headwaters towards the outlets."""
+    flat_valid = valid.ravel()
+    flat_receiver = receiver.ravel()
+    source = np.flatnonzero(flat_valid & (flat_receiver >= 0) & (flat_receiver < flat_valid.size))
+    source = source[flat_valid[flat_receiver[source]]]
+    indegree = np.zeros(flat_valid.size, dtype=np.int32)
+    np.add.at(indegree, flat_receiver[source], 1)
+    pending = list(np.flatnonzero(flat_valid & (indegree == 0)))
+    ordered: list[int] = []
+    while pending:
+        src = pending.pop()
+        ordered.append(src)
+        dst = flat_receiver[src]
+        if dst >= 0 and flat_valid[dst]:
+            indegree[dst] -= 1
+            if indegree[dst] == 0:
+                pending.append(int(dst))
+    if len(ordered) != int(flat_valid.sum()):
+        raise ValueError("External D4 network contains a cycle or unresolved receiver.")
+    return np.asarray(ordered, dtype=np.int64)
+
+
+def enforce_downstream_channel_surface(
+    dem: np.ndarray,
+    river_mask: np.ndarray,
+    receiver: np.ndarray,
+    profile: dict,
+    min_slope: float,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Lower river-cell terrain only enough to make its directed profile descend."""
+    if not (dem.shape == river_mask.shape == receiver.shape):
+        raise ValueError("Channel-profile DEM, mask, and receiver must have the same shape.")
+    nodata = profile.get("nodata", -9999.0)
+    valid = river_mask & valid_mask(dem, nodata)
+    surface = dem.astype("float64", copy=True)
+    flat_surface = surface.ravel()
+    flat_receiver = receiver.ravel()
+    dx, dy = get_cellsize(profile)
+    drop = max(float(min_slope), 0.0) * min(dx, dy)
+    for src in _directed_d4_order(valid, receiver):
+        dst = flat_receiver[src]
+        if dst >= 0 and valid.ravel()[dst]:
+            flat_surface[dst] = min(flat_surface[dst], flat_surface[src] - drop)
+    adjustment = np.zeros_like(surface)
+    adjustment[valid] = dem[valid] - surface[valid]
+    return surface.astype("float32"), adjustment.astype("float32")
+
+
+def aggregate_channel_surface_minimum(
+    source_surface: np.ndarray,
+    source_profile: dict,
+    target_profile: dict,
+) -> np.ndarray:
+    """Aggregate a river-only source surface to model cells using its minimum."""
+    source_nodata = -9999.0
+    source = np.where(np.isfinite(source_surface), source_surface, source_nodata).astype("float32")
+    target = np.full((target_profile["height"], target_profile["width"]), source_nodata, dtype="float32")
+    reproject(
+        source=source,
+        destination=target,
+        src_transform=source_profile["transform"],
+        src_crs=source_profile["crs"],
+        src_nodata=source_nodata,
+        dst_transform=target_profile["transform"],
+        dst_crs=target_profile["crs"],
+        dst_nodata=source_nodata,
+        resampling=Resampling.min,
+    )
+    target[target == source_nodata] = np.nan
+    return target
 
 
 def build_external_d4_river_network(
@@ -2155,10 +2229,72 @@ def automatic_d4_hydraulic_channel_carving(
     dem_base, base_profile = read_raster(dem_to_carve)
     base_nodata = base_profile.get("nodata", -9999.0)
     valid_base = valid_mask(dem_base, base_nodata)
+    channel_surface = dem_base.copy()
+    corridor_lowering = np.zeros_like(dem_base, dtype="float32")
+    if external_network_used and cfg.external_network_profile_from_source_dem:
+        source_dem, source_profile = read_raster(Path(cfg.dem))
+        source_nodata = source_profile.get("nodata", -9999.0)
+        source_mask, source_receiver, _ = build_external_d4_river_network(
+            cfg.external_river_network,
+            source_profile,
+            cfg.min_area,
+            cfg.external_network_id_field,
+            cfg.external_network_next_down_field,
+            cfg.external_network_area_field,
+        )
+        source_profile_surface, source_lowering = enforce_downstream_channel_surface(
+            source_dem,
+            source_mask,
+            source_receiver,
+            source_profile,
+            cfg.channel_bed_min_slope,
+        )
+        source_profile_surface[~source_mask] = np.nan
+        source_profile_surface[~valid_mask(source_dem, source_nodata)] = np.nan
+        coarse_profile = aggregate_channel_surface_minimum(source_profile_surface, source_profile, base_profile)
+        profile_available = river_mask & valid_base & np.isfinite(coarse_profile)
+        channel_surface[profile_available] = np.minimum(channel_surface[profile_available], coarse_profile[profile_available])
+        channel_surface, corridor_lowering = enforce_downstream_channel_surface(
+            channel_surface,
+            river_mask & valid_base,
+            receiver,
+            base_profile,
+            cfg.channel_bed_min_slope,
+        )
+        write_raster(
+            output_path(out_dir, "D4_external_river_profile_source_surface_m.tif"),
+            source_profile_surface,
+            source_profile,
+            nodata=-9999.0,
+        )
+        write_raster(
+            output_path(out_dir, "D4_external_river_profile_source_lowering_m.tif"),
+            source_lowering,
+            source_profile,
+            nodata=-9999.0,
+        )
+        write_raster(
+            output_path(out_dir, "D4_external_river_corridor_surface_m.tif"),
+            channel_surface,
+            base_profile,
+            nodata=-9999.0,
+        )
+        write_raster(
+            output_path(out_dir, "D4_external_river_corridor_lowering_m.tif"),
+            corridor_lowering,
+            base_profile,
+            nodata=-9999.0,
+        )
+        values = corridor_lowering[(river_mask & valid_base) & (corridor_lowering > 0)]
+        pd.DataFrame([{
+            "profile_lowered_cells": int(values.size),
+            "profile_lowering_max_m": float(np.nanmax(values)) if values.size else 0.0,
+            "profile_lowering_p99_m": float(np.nanpercentile(values, 99)) if values.size else 0.0,
+        }]).to_csv(output_path(out_dir, "D4_external_river_profile_QA_summary.csv"), index=False)
     channel_depth_adjustment = np.zeros_like(H, dtype="float32")
     if cfg.condition_d4_channel_bed:
         H, channel_depth_adjustment = condition_d4_channel_bed(
-            dem_base,
+            channel_surface,
             H,
             river_mask & valid_base,
             receiver,
@@ -2199,7 +2335,7 @@ def automatic_d4_hydraulic_channel_carving(
         )
 
     channel_bed_qa = write_d4_channel_bed_qa(
-        dem_base,
+        channel_surface,
         H,
         river_mask & valid_base,
         receiver,
@@ -2207,7 +2343,7 @@ def automatic_d4_hydraulic_channel_carving(
         out_dir,
     )
 
-    carved = dem_base.copy()
+    carved = channel_surface.copy()
     apply_mask = river_mask & valid_base & (H_abg > 0)
     carved[apply_mask] = carved[apply_mask] - H_abg[apply_mask]
 
@@ -3385,6 +3521,8 @@ Print full documentation:
                    help="Upstream drainage-area field [km2] in --external-river-network.")
     p.add_argument("--external-network-snap-radius-cells", type=int, default=0,
                    help="Optional local DEM snap radius for external-network centreline cells (default: 0).")
+    p.add_argument("--external-network-profile-from-source-dem", action="store_true",
+                   help="Build a descending river-corridor surface from the input DEM before aggregation to the model grid.")
     p.add_argument("--external-geometry-min-width-m", type=float, default=1.0,
                    help="Minimum valid external width in meters.")
     p.add_argument("--external-geometry-min-depth-m", type=float, default=0.01,
@@ -3496,6 +3634,8 @@ Print full documentation:
     put("external_network_next_down_field", a.external_network_next_down_field, "--external-network-next-down-field")
     put("external_network_area_field", a.external_network_area_field, "--external-network-area-field")
     put("external_network_snap_radius_cells", a.external_network_snap_radius_cells, "--external-network-snap-radius-cells")
+    put("external_network_profile_from_source_dem", a.external_network_profile_from_source_dem,
+        "--external-network-profile-from-source-dem")
     put("external_geometry_min_width_m", a.external_geometry_min_width_m, "--external-geometry-min-width-m")
     put("external_geometry_min_depth_m", a.external_geometry_min_depth_m, "--external-geometry-min-depth-m")
     put("spatial_beta_1_raster", a.spatial_beta_1_raster, "--spatial-beta-1-raster")

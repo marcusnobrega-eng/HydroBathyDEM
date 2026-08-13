@@ -178,6 +178,7 @@ def build_qa_scorecard(out_dir: Path, thresholds: Optional[Mapping[str, float]] 
 
     mod = dataframe_first_row(output_path(out_dir, "modification_summary.csv"))
     creek = dataframe_first_row(output_path(out_dir, "D4_HydroPol2D_creek_reduction_summary.csv"))
+    corridor = dataframe_first_row(output_path(out_dir, "D4_external_river_profile_QA_summary.csv"))
     conn = d4_connectivity_stats(output_path(out_dir, "D4_idx_facc.tif"))
     habg = raster_stats(output_path(out_dir, "D4_H_abg_m.tif"), positive_only=True)
 
@@ -225,6 +226,13 @@ def build_qa_scorecard(out_dir: Path, thresholds: Optional[Mapping[str, float]] 
         warn_if=float(creek.get("channel_bed_receiver_sill_max_m", 0) or 0) > thresholds.get("channel_bed_sill_warn_m", 0.1),
         note="Inspect D4_Neal_channel_receiver_sill_m.tif before using geometry in HydroPol2D.",
     )
+    if corridor:
+        add(
+            "profile_lowering_max_m",
+            corridor.get("profile_lowering_max_m"),
+            warn_if=float(corridor.get("profile_lowering_max_m", 0) or 0) > thresholds.get("profile_lowering_warn_m", 100.0),
+            note="Maximum terrain lowering used to create the external river-corridor profile.",
+        )
     add("d4_connected_components", conn.get("d4_connected_components"), note="4-neighbour river-mask components.")
     add(
         "largest_component_percent",

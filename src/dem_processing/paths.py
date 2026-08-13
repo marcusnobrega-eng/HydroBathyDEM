@@ -33,6 +33,7 @@ REPORT_FILES = {
     "DEM_conditioning_README.md",
     "modification_summary.csv",
     "D4_HydroPol2D_creek_reduction_summary.csv",
+    "D4_external_river_profile_QA_summary.csv",
     "D4_river_connectivity_summary.csv",
     "run_manifest.json",
     "qa_scorecard.csv",

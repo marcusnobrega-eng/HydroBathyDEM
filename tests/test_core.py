@@ -13,11 +13,13 @@ import geopandas as gpd
 
 from dem_processing.config import config_to_cli_args, load_config_file
 from dem_processing.condition_dem import (
+    aggregate_channel_surface_minimum,
     build_external_d4_river_network,
     condition_d4_channel_bed,
     compute_d4_channel_bed_sills,
     compute_d4_flow_accumulation,
     compute_equivalent_H_abg,
+    enforce_downstream_channel_surface,
 )
 from dem_processing.fabdem import choose_target_crs, parse_resolution
 from dem_processing.geometry_export import export_geometry_only_products
@@ -37,6 +39,7 @@ class CoreToolboxTests(unittest.TestCase):
         self.assertEqual(output_theme("D4_idx_facc.tif"), "d4")
         self.assertEqual(output_theme("diagnostic_final_modifications.png"), "diagnostics")
         self.assertEqual(output_theme("qa_scorecard.csv"), "reports")
+        self.assertEqual(output_theme("D4_external_river_profile_QA_summary.csv"), "reports")
         self.assertEqual(output_theme("geometry_only_export_summary.json"), "reports")
         self.assertTrue(str(output_path("/tmp/out", "D4_idx_facc.tif")).endswith("/tmp/out/d4/D4_idx_facc.tif"))
 
@@ -147,6 +150,22 @@ class CoreToolboxTests(unittest.TestCase):
             )
         self.assertTrue(np.all(mask[1, :3]))
         self.assertEqual(int(receiver[1, 0]), 5)
+
+    def test_channel_surface_profile_descends_and_aggregates_by_minimum(self) -> None:
+        profile = {"height": 1, "width": 3, "transform": Affine.scale(1, -1), "nodata": -9999.0}
+        dem = np.array([[10.0, 20.0, 1.0]], dtype="float32")
+        river = np.array([[1, 1, 1]], dtype=bool)
+        receiver = np.array([[1, 2, -1]], dtype=np.int64)
+        surface, lowering = enforce_downstream_channel_surface(dem, river, receiver, profile, min_slope=1.0)
+        self.assertEqual(surface.tolist(), [[10.0, 9.0, 1.0]])
+        self.assertEqual(lowering.tolist(), [[0.0, 11.0, 0.0]])
+
+        source_profile = {"height": 1, "width": 4, "transform": Affine.translation(500000, 1000) * Affine.scale(1, -1), "crs": "EPSG:32643"}
+        target_profile = {"height": 1, "width": 2, "transform": Affine.translation(500000, 1000) * Affine.scale(2, -1), "crs": "EPSG:32643"}
+        aggregated = aggregate_channel_surface_minimum(
+            np.array([[10.0, np.nan, 8.0, 6.0]], dtype="float32"), source_profile, target_profile,
+        )
+        self.assertEqual(aggregated.tolist(), [[10.0, 6.0]])
 
     def test_parse_fabdem_resolution(self) -> None:
         self.assertEqual(parse_resolution("30"), 30.0)
