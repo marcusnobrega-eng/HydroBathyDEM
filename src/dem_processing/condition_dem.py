@@ -2256,6 +2256,9 @@ def automatic_d4_hydraulic_channel_carving(
             cfg.external_network_id_field,
             cfg.external_network_next_down_field,
             cfg.external_network_area_field,
+            source_dem,
+            source_nodata,
+            cfg.external_network_snap_radius_cells,
         )
         source_profile_surface, source_lowering = enforce_downstream_channel_surface(
             source_dem,
