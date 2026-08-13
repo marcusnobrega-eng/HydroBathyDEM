@@ -466,12 +466,17 @@ renaming:
 
 ```bash
 hydrobathydem-condition --config case.json \
-  --external-river-network Data/HydroRIVERS_v10_as.shp
+  --external-river-network Data/HydroRIVERS_v10_as.shp \
+  --external-network-profile-from-source-dem \
+  --external-network-profile-dem Data/HydroSHEDS_CON_500m.tif
 ```
 
 The network supplies the downstream topology (`HYRIV_ID`, `NEXT_DOWN`) and
 upstream area (`UPLAND_SKM`); it does not supply river elevations. Inspect the
 channel-bed sill QA before adopting the output, especially in steep terrain.
+`--external-network-profile-dem` can supply a higher-resolution, hydrologically
+conditioned DEM for the river-corridor elevations while retaining the model DEM
+for the floodplain.
 
 ## Outputs
 

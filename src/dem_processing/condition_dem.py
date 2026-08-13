@@ -903,6 +903,7 @@ class DEMConditioningConfig:
     external_network_area_field: str = "UPLAND_SKM"
     external_network_snap_radius_cells: int = 0
     external_network_profile_from_source_dem: bool = False
+    external_network_profile_dem: Optional[str] = None
     spatial_beta_1_raster: Optional[str] = None
     spatial_beta_2_raster: Optional[str] = None
     spatial_alfa_1_raster: Optional[str] = None
@@ -2245,7 +2246,8 @@ def automatic_d4_hydraulic_channel_carving(
     channel_surface = dem_base.copy()
     corridor_lowering = np.zeros_like(dem_base, dtype="float32")
     if external_network_used and cfg.external_network_profile_from_source_dem:
-        source_dem, source_profile = read_raster(Path(cfg.dem))
+        profile_dem_path = Path(cfg.external_network_profile_dem or cfg.dem).expanduser()
+        source_dem, source_profile = read_raster(profile_dem_path)
         source_nodata = source_profile.get("nodata", -9999.0)
         source_mask, source_receiver, _ = build_external_d4_river_network(
             cfg.external_river_network,
@@ -2262,6 +2264,7 @@ def automatic_d4_hydraulic_channel_carving(
             source_profile,
             cfg.channel_bed_min_slope,
         )
+        print(f"[INFO] external river profile DEM = {profile_dem_path}")
         source_profile_surface[~source_mask] = np.nan
         source_profile_surface[~valid_mask(source_dem, source_nodata)] = np.nan
         coarse_profile = aggregate_channel_surface_minimum(source_profile_surface, source_profile, base_profile)
@@ -3536,6 +3539,8 @@ Print full documentation:
                    help="Optional local DEM snap radius for external-network centreline cells (default: 0).")
     p.add_argument("--external-network-profile-from-source-dem", action="store_true",
                    help="Build a descending river-corridor surface from the input DEM before aggregation to the model grid.")
+    p.add_argument("--external-network-profile-dem", default=None,
+                   help="Optional higher-resolution DEM used only to build the external river-corridor profile.")
     p.add_argument("--external-geometry-min-width-m", type=float, default=1.0,
                    help="Minimum valid external width in meters.")
     p.add_argument("--external-geometry-min-depth-m", type=float, default=0.01,
@@ -3649,6 +3654,7 @@ Print full documentation:
     put("external_network_snap_radius_cells", a.external_network_snap_radius_cells, "--external-network-snap-radius-cells")
     put("external_network_profile_from_source_dem", a.external_network_profile_from_source_dem,
         "--external-network-profile-from-source-dem")
+    put("external_network_profile_dem", a.external_network_profile_dem, "--external-network-profile-dem")
     put("external_geometry_min_width_m", a.external_geometry_min_width_m, "--external-geometry-min-width-m")
     put("external_geometry_min_depth_m", a.external_geometry_min_depth_m, "--external-geometry-min-depth-m")
     put("spatial_beta_1_raster", a.spatial_beta_1_raster, "--spatial-beta-1-raster")
