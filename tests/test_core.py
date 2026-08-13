@@ -167,6 +167,18 @@ class CoreToolboxTests(unittest.TestCase):
         )
         self.assertEqual(aggregated.tolist(), [[10.0, 6.0]])
 
+    def test_channel_surface_profile_handles_raster_induced_cycle(self) -> None:
+        profile = {"height": 1, "width": 2, "transform": Affine.scale(1, -1), "nodata": -9999.0}
+        with self.assertWarnsRegex(UserWarning, "raster-induced"):
+            surface, _ = enforce_downstream_channel_surface(
+                np.array([[10.0, 20.0]], dtype="float32"),
+                np.array([[1, 1]], dtype=bool),
+                np.array([[1, 0]], dtype=np.int64),
+                profile,
+                min_slope=1.0,
+            )
+        self.assertTrue(np.all(np.isfinite(surface)))
+
     def test_parse_fabdem_resolution(self) -> None:
         self.assertEqual(parse_resolution("30"), 30.0)
         self.assertEqual(parse_resolution("30,60"), (30.0, 60.0))

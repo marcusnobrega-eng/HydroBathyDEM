@@ -1489,16 +1489,29 @@ def _directed_d4_order(valid: np.ndarray, receiver: np.ndarray) -> np.ndarray:
     np.add.at(indegree, flat_receiver[source], 1)
     pending = list(np.flatnonzero(flat_valid & (indegree == 0)))
     ordered: list[int] = []
-    while pending:
-        src = pending.pop()
-        ordered.append(src)
-        dst = flat_receiver[src]
-        if dst >= 0 and flat_valid[dst]:
-            indegree[dst] -= 1
-            if indegree[dst] == 0:
-                pending.append(int(dst))
-    if len(ordered) != int(flat_valid.sum()):
-        raise ValueError("External D4 network contains a cycle or unresolved receiver.")
+    cycle_breaks = 0
+    while len(ordered) < int(flat_valid.sum()):
+        while pending:
+            src = pending.pop()
+            ordered.append(src)
+            dst = flat_receiver[src]
+            if dst >= 0 and flat_valid[dst]:
+                indegree[dst] -= 1
+                if indegree[dst] == 0:
+                    pending.append(int(dst))
+        if len(ordered) == int(flat_valid.sum()):
+            break
+        # Vector reaches are acyclic, but snapping several reaches to a raster
+        # can create a tiny artificial loop.  Seed one member so the profile
+        # remains usable; the adjustment raster records the consequence.
+        remaining = np.flatnonzero(flat_valid & (indegree > 0))
+        if not remaining.size:
+            break
+        pending.append(int(remaining[0]))
+        indegree[remaining[0]] = 0
+        cycle_breaks += 1
+    if cycle_breaks:
+        warnings.warn(f"Broke {cycle_breaks} raster-induced external-network cycle(s) while building the channel profile.")
     return np.asarray(ordered, dtype=np.int64)
 
 
