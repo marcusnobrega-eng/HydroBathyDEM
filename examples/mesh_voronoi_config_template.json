@@ -1,0 +1,45 @@
+{
+  "schema_version": "hydrobathydem-mesh-1.0",
+  "mesh": {
+    "mode": "voronoi_fv",
+    "inputs": {
+      "dem": "path/to/conditioned_dem.tif",
+      "out_dir": "outputs/voronoi_mesh",
+      "domain_vector": "path/to/model_domain.gpkg",
+      "impervious": "path/to/impervious_percent.tif",
+      "population": "path/to/population_per_km2.tif",
+      "river_mask": "path/to/D4_idx_facc.tif",
+      "river_direction": "path/to/D4_flow_direction.tif",
+      "river_width": "path/to/river_width_m.tif",
+      "river_depth": "path/to/river_depth_m.tif",
+      "floodplain_vector": "path/to/design_floodplain_corridor.gpkg"
+    },
+    "voronoi": {
+      "resolution": {
+        "background_width_m": 120,
+        "urban_width_m": 45,
+        "river_along_river_cell_length_m": 30,
+        "river_cross_river_target_width_m": 90,
+        "floodplain_target_width_m": 60,
+        "minimum_cell_width_m": 30,
+        "maximum_adjacent_size_ratio": 2
+      },
+      "rivers": {
+        "source": "hydrobathydem_d4",
+        "river_preferred_cells_across": 3,
+        "unresolved_policy": "none"
+      },
+      "urban": {
+        "impervious_threshold_percent": 1,
+        "population_threshold_per_km2": 1000,
+        "buffer_m": 300
+      },
+      "quality": {
+        "minimum_face_length_factor": 0.25,
+        "minimum_center_distance_factor": 0.5,
+        "quality_repair_max_iterations": 8
+      },
+      "max_seed_count": 1200000
+    }
+  }
+}

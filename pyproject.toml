@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydrobathydem"
-version = "0.1.0"
-description = "Raster DEM conditioning, D4 river geometry, and optional bathymetry lowering for flood-model workflows."
+version = "0.2.0"
+description = "DEM conditioning, river bathymetry, and regular or adaptive Voronoi mesh products for flood models."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -39,6 +39,7 @@ dependencies = [
     "affine",
     "geopandas",
     "matplotlib",
+    "netCDF4",
     "numpy",
     "pandas",
     "pyogrio",
@@ -75,3 +76,8 @@ hydrobathydem-calibrate-hydraulics = "dem_processing.calibrate_spatial_hydraulic
 hydrobathydem-preflight = "dem_processing.preflight:main"
 hydrobathydem-build-dem = "dem_processing.fabdem:main"
 hydrobathydem-export-geometry = "dem_processing.geometry_export:main"
+hydrobathydem-build-hybrid-mesh = "dem_processing.hybrid_mesh:main"
+hydrobathydem-build-mesh = "dem_processing.mesh_product:main"
+hydrobathydem-download-gcn250 = "dem_processing.design_hydrograph:main_download"
+hydrobathydem-design-hydrograph = "dem_processing.design_hydrograph:main"
+hydrobathydem-build-design-corridor = "dem_processing.design_corridor:main"

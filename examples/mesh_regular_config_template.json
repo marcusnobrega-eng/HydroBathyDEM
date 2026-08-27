@@ -1,0 +1,13 @@
+{
+  "schema_version": "hydrobathydem-mesh-1.0",
+  "mesh": {
+    "mode": "regular",
+    "inputs": {
+      "dem": "path/to/conditioned_dem.tif",
+      "out_dir": "outputs/regular_mesh"
+    },
+    "regular": {
+      "cell_size_m": 30
+    }
+  }
+}

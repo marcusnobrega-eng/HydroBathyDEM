@@ -1,0 +1,27 @@
+{
+  "inputs": {
+    "dem": "path/to/conditioned_dem.tif",
+    "cn": "path/to/GCN250_CN_AMCII.tif",
+    "river_mask": "path/to/D4_idx_facc.tif",
+    "river_direction": "path/to/D4_flow_direction.tif",
+    "contributing_area": "path/to/D4_contributing_area_km2.tif",
+    "out_dir": "outputs/design_hydrograph"
+  },
+  "idf": {
+    "idf_k": 3559.7,
+    "idf_a": 0.182,
+    "idf_b_min": 21.662,
+    "idf_c": 0.911,
+    "return_period_yr": 100
+  },
+  "scs": {
+    "initial_abstraction_ratio": 0.2,
+    "minimum_cn_coverage_fraction": 0.9
+  },
+  "hut": {
+    "storm_duration_ratio_to_tc": 0.133,
+    "minimum_tc_min": 5,
+    "minimum_storm_duration_min": 5,
+    "hut_lag_ratio_to_tc": 0.6
+  }
+}

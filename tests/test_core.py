@@ -16,9 +16,11 @@ from dem_processing.condition_dem import (
     aggregate_channel_surface_minimum,
     build_external_d4_river_network,
     condition_d4_channel_bed,
+    condition_d4_channel_surface,
     compute_d4_channel_bed_sills,
     compute_d4_flow_accumulation,
     compute_equivalent_H_abg,
+    condition_d4_surface_pits,
     enforce_downstream_channel_surface,
 )
 from dem_processing.fabdem import choose_target_crs, parse_resolution
@@ -67,6 +69,27 @@ class CoreToolboxTests(unittest.TestCase):
         self.assertEqual(receiver.shape, dem.shape)
         self.assertGreaterEqual(float(np.nanmax(acc)), 3.0)
 
+    def test_d4_surface_pit_breach_is_bounded_and_creates_a_d4_exit(self) -> None:
+        dem = np.array(
+            [[20.0, 12.0, 20.0], [20.0, 0.0, 20.0], [20.0, 20.0, 20.0]],
+            dtype="float32",
+        )
+        profile = {"transform": Affine.translation(0, 0) * Affine.scale(1, -1), "nodata": -9999.0}
+        conditioned, pit_depth, lowering, ledger = condition_d4_surface_pits(
+            dem, profile, pit_min_depth_m=5.0, max_lowering_m=15.0, max_length_cells=2, flat_increment=0.01,
+        )
+        _, receiver = compute_d4_flow_accumulation(conditioned, profile, nodata=-9999.0)
+        self.assertGreater(float(pit_depth[1, 1]), 12.0)
+        self.assertAlmostEqual(float(lowering[0, 1]), 12.01, places=5)
+        self.assertEqual(int(receiver[1, 1]), 1)  # centre drains north through the lowered sill
+        self.assertEqual(int(ledger["accepted"].sum()), 1)
+
+        _, _, rejected_lowering, rejected = condition_d4_surface_pits(
+            dem, profile, pit_min_depth_m=5.0, max_lowering_m=10.0, max_length_cells=2, flat_increment=0.01,
+        )
+        self.assertEqual(int(rejected["accepted"].sum()), 0)
+        self.assertEqual(float(rejected_lowering.max()), 0.0)
+
     def test_d4_channel_bed_sill_flags_uphill_receiver(self) -> None:
         dem = np.array([[10.0, 9.0, 8.0]], dtype="float32")
         depth = np.array([[3.0, 0.1, 1.0]], dtype="float32")
@@ -77,6 +100,19 @@ class CoreToolboxTests(unittest.TestCase):
         self.assertAlmostEqual(float(bed[0, 1]), 8.9, places=5)
         self.assertAlmostEqual(float(sill[0, 0]), 1.9, places=5)
         self.assertAlmostEqual(float(sill[0, 1]), 0.0)
+
+    def test_d4_channel_surface_removes_sill_when_depth_is_capped(self) -> None:
+        dem = np.array([[10.0, 11.0]], dtype="float32")
+        depth = np.array([[1.0, 1.0]], dtype="float32")
+        river = np.array([[True, True]])
+        receiver = np.array([[1, -1]], dtype=np.int64)
+        profile = {"transform": Affine.translation(0, 0) * Affine.scale(30, -30)}
+        surface, lowering = condition_d4_channel_surface(
+            dem, depth, river, receiver, profile, min_slope=1e-5, max_lowering_m=2.0,
+        )
+        self.assertGreater(float(lowering[0, 1]), 1.0)
+        _, sill = compute_d4_channel_bed_sills(surface, depth, river, receiver)
+        self.assertEqual(float(sill[0, 0]), 0.0)
 
     def test_d4_channel_bed_conditioning_deepens_only_downstream_cells(self) -> None:
         dem = np.array([[10.0, 9.0, 8.0]], dtype="float32")

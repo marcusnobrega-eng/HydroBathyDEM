@@ -1,0 +1,27 @@
+{
+  "inputs": {
+    "dem": "path/to/uncarved_dem.tif",
+    "fallback_dem": "path/to/complete_fallback_dem.tif",
+    "river_mask": "path/to/D4_idx_facc.tif",
+    "river_direction": "path/to/D4_flow_direction.tif",
+    "river_width": "path/to/river_width_m.tif",
+    "river_depth": "path/to/river_depth_m.tif",
+    "river_bed": "path/to/river_bed_elevation_m.tif",
+    "design_peak": "outputs/design_hydrograph/D4_SCS_HUT_Qp_100yr_m3s.tif",
+    "out_dir": "outputs/design_corridor"
+  },
+  "hydraulics": {
+    "channel_manning_n": 0.035,
+    "floodplain_manning_n": 0.05,
+    "minimum_slope": 0.0001,
+    "maximum_slope": 0.05,
+    "max_half_width_m": 2000,
+    "max_stage_above_bank_m": 20,
+    "cross_section_spacing_m": 150,
+    "slope_window_m": 600,
+    "bank_sampling_width_m": 90,
+    "bank_smoothing_window_m": 600,
+    "centerline_simplification_m": 45,
+    "floodplain_axis_min_upstream_area_km2": 0.02
+  }
+}

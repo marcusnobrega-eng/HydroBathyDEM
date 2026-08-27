@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">HydroBathyDEM</h1>
   <p align="center">
-    Raster DEM conditioning, D4 river geometry, and optional bathymetry lowering for flood-model workflows.
+    DEM conditioning, river bathymetry, and regular or adaptive Voronoi meshes for flood-model workflows.
   </p>
 </p>
 
@@ -118,6 +118,8 @@ from terrain-conditioning changes such as breaching or local pit repair.
 - 🧪 preflight checks for missing DEM, Lin, and coefficient inputs
 - 📊 diagnostic plots for smoothing, D4 extraction, geometry source, and final DEM changes
 - 🧩 geometry-only export for a no-bathymetry DEM plus river-only width/depth rasters
+- 🔲 explicit regular-grid or adaptive Voronoi mesh packaging from the same conditioned terrain
+- 🔁 conservative raster–polygon overlap weights for HydroPol2D forcing and postprocessing
 - 🧾 QA scorecards and run manifests for reproducibility
 - 📦 installable command-line package with `hydrobathydem-*` entry points
 
@@ -172,7 +174,118 @@ hydrobathydem-calibrate-hydraulics --help
 hydrobathydem-preflight --help
 hydrobathydem-build-dem --help
 hydrobathydem-export-geometry --help
+hydrobathydem-build-mesh --help
 ```
+
+## Regular And Unstructured Mesh Products
+
+Terrain conditioning, D4 rivers, bathymetry, and floodplain preparation are
+shared. The mesh decision is made only after those common products exist:
+
+```text
+conditioned terrain and rivers
+             |
+             v
+       mesh.mode selection
+        /             \
+   regular         voronoi_fv
+      |                 |
+raster metadata   UGRID + GeoPackage
+                  + conservative overlap
+```
+
+Use one explicit switch:
+
+```json
+{"mesh": {"mode": "regular"}}
+```
+
+or:
+
+```json
+{"mesh": {"mode": "voronoi_fv"}}
+```
+
+Complete templates are provided at:
+
+- [`examples/mesh_regular_config_template.json`](examples/mesh_regular_config_template.json)
+- [`examples/mesh_voronoi_config_template.json`](examples/mesh_voronoi_config_template.json)
+
+Build either product with the same command:
+
+```bash
+hydrobathydem-build-mesh --config examples/mesh_regular_config_template.json
+hydrobathydem-build-mesh --config examples/mesh_voronoi_config_template.json
+```
+
+The templates contain placeholder paths and must be copied into a case before
+running. Mode-specific settings cannot be mixed. Unknown fields fail validation
+instead of being silently ignored.
+
+### Regular mode
+
+Regular mode validates and packages an already conditioned, projected,
+unrotated, square-cell DEM. It does not resample the DEM again. Configure the
+target resolution during DEM conditioning, then use `cell_size_m` as an
+explicit consistency check. Outputs are:
+
+```text
+mesh/hydropol_regular_grid.json
+reports/regular_mesh_qa.json
+reports/mesh_config_resolved.json
+```
+
+### Voronoi mode
+
+Voronoi mode uses the adaptive generator documented by the template. The main
+resolution controls are:
+
+| Parameter | Meaning | Main computational effect |
+|---|---|---|
+| `background_width_m` | Rural/background target width | Controls most cells in large rural domains |
+| `urban_width_m` | Urban/impervious target width | Refines populated and built-up areas |
+| `river_along_river_cell_length_m` | Cell length along mapped rivers | Controls longitudinal river resolution |
+| `river_cross_river_target_width_m` | Cell width across mapped rivers | Controls cross-channel resolution |
+| `floodplain_target_width_m` | Isotropic floodplain target width | Controls overbank refinement |
+| `minimum_cell_width_m` | Hard hydraulic dimension floor | Protects cell count and timestep |
+| `maximum_adjacent_size_ratio` | Requested transition ratio | Smooths target-size changes |
+| `minimum_face_length_factor` | Minimum face length divided by minimum cell width | Prevents tiny finite-volume faces |
+| `minimum_center_distance_factor` | Minimum center spacing divided by minimum cell width | Protects the CFL length |
+
+The production package contains:
+
+```text
+mesh/hydropol_hybrid_mesh.nc
+mesh/hydropol_hybrid_mesh.gpkg
+mesh/hydropol_mesh_overlap.nc
+reports/hybrid_mesh_qa.json
+reports/mesh_config_resolved.json
+diagnostics/hybrid_mesh_wireframe.png
+```
+
+`hydropol_mesh_overlap.nc` is generated automatically and is part of the mesh
+contract. MATLAB and Python use it to map raster forcing to polygons and
+polygon states back to rasters without case-specific interpolation code.
+
+### Optional design-flow refinement corridor
+
+When a mapped floodplain is not supplied, HydroBathyDEM can create a screening
+corridor for mesh refinement. It uses the published GCN250 Curve Number,
+area-weighted D4 accumulation, an SCS event runoff calculation, an SCS
+dimensionless unit-hydrograph peak, and terrain-connected compound-Manning
+cross sections. This product guides mesh resolution only; it is not a
+calibrated flood-frequency estimate or an inundation prediction.
+
+```bash
+hydrobathydem-download-gcn250 --amc II --output data/GCN250_CN_AMCII.tif
+hydrobathydem-design-hydrograph --config examples/design_hydrograph_config_template.json
+hydrobathydem-build-design-corridor --config examples/design_corridor_config_template.json
+```
+
+Copy the templates into the case and replace their placeholder paths. The
+corridor builder requires a finite result for every mapped river cell. Missing
+GCN values inside the domain use the nearest valid published GCN value; an
+optional complete fallback DEM covers gaps in the uncarved terrain.
 
 ## Quick Start
 

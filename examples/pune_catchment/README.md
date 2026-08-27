@@ -3,6 +3,12 @@
 This example provides a small 30 m Pune-area DEM so users can test
 HydroBathyDEM without downloading a national-scale raster.
 
+The regular/Voronoi mesh selection is now handled by
+`hydrobathydem-build-mesh`. The generic templates in the repository `examples`
+folder define the supported parameters. Pune-specific experimental configs are
+research records; new cases should start from those two templates rather than
+copying an intermediate Pune experiment.
+
 ## Input
 
 ```text

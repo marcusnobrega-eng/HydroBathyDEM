@@ -929,10 +929,24 @@ class DEMConditioningConfig:
     river_depth_cap_m: Optional[float] = None
     max_H_abg_m: float = 50.0
     d4_routing_max_raise_m: Optional[float] = None
+    # Optional raster mask for active boundary cells that receive an imposed
+    # inflow.  These cells cannot act as D4 drainage outlets when building a
+    # routing surface; the priority flood must connect them to another outlet.
+    d4_routing_exclude_outlet_mask: Optional[str] = None
+    # Optional D4-only terrain breach after kilometre-scale aggregation.  This
+    # corrects short artificial pits in the DEM used by HydroPol2D; unlike the
+    # routing-only priority flood it never raises model terrain.
+    condition_surface_d4: bool = False
+    d4_surface_pit_min_depth_m: float = 5.0
+    d4_surface_breach_max_lowering_m: float = 15.0
+    d4_surface_breach_max_length_cells: int = 5
     condition_d4_channel_bed: bool = True
     channel_bed_min_slope: float = 1e-5
+    condition_d4_channel_surface: bool = False
+    channel_bed_surface_max_lowering_m: float = 15.0
 
     # Whitebox breaching
+    breach_single_cell_pits: bool = True
     use_least_cost_breaching: bool = True
     breach_dist_cells: int = 10000
     breach_max_cost: Optional[float] = None
@@ -1802,11 +1816,65 @@ def condition_d4_channel_bed(
     return conditioned.astype("float32"), adjustment.astype("float32")
 
 
+def condition_d4_channel_surface(
+    dem: np.ndarray,
+    river_depth: np.ndarray,
+    river_mask: np.ndarray,
+    receiver: np.ndarray,
+    profile: dict,
+    min_slope: float,
+    max_lowering_m: float,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Lower the channel surface only where a capped physical depth leaves a sill."""
+    if max_lowering_m <= 0:
+        raise ValueError("channel_bed_surface_max_lowering_m must be positive.")
+    if not (dem.shape == river_depth.shape == river_mask.shape == receiver.shape):
+        raise ValueError("D4 channel-surface conditioning inputs must have the same shape.")
+
+    drop = max(float(min_slope), 0.0) * min(get_cellsize(profile))
+    surface = dem.astype("float64", copy=True)
+    valid = river_mask & np.isfinite(surface) & np.isfinite(river_depth) & (river_depth > 0)
+    flat_valid, flat_surface = valid.ravel(), surface.ravel()
+    flat_depth, flat_receiver = river_depth.ravel(), receiver.ravel()
+    source = np.flatnonzero(flat_valid & (flat_receiver >= 0) & (flat_receiver < flat_valid.size))
+    source = source[flat_valid[flat_receiver[source]]]
+
+    indegree = np.zeros(flat_valid.size, dtype=np.int32)
+    np.add.at(indegree, flat_receiver[source], 1)
+    pending = list(np.flatnonzero(flat_valid & (indegree == 0)))
+    ordered: list[int] = []
+    while pending:
+        src = pending.pop()
+        ordered.append(int(src))
+        dst = flat_receiver[src]
+        if dst >= 0 and flat_valid[dst]:
+            indegree[dst] -= 1
+            if indegree[dst] == 0:
+                pending.append(int(dst))
+    if len(ordered) != int(flat_valid.sum()):
+        raise ValueError("D4 river graph contains a cycle; cannot enforce channel-bed surface.")
+
+    lowering = np.zeros(flat_surface.size, dtype="float64")
+    for src in ordered:
+        dst = flat_receiver[src]
+        if dst < 0 or not flat_valid[dst]:
+            continue
+        max_downstream_bed = flat_surface[src] - flat_depth[src] - drop
+        required = (flat_surface[dst] - flat_depth[dst]) - max_downstream_bed
+        if required > 0:
+            applied = min(required, max_lowering_m - lowering[dst])
+            if applied > 0:
+                flat_surface[dst] -= applied
+                lowering[dst] += applied
+    return surface.astype("float32"), lowering.reshape(dem.shape).astype("float32")
+
+
 def build_d4_monotonic_routing_surface(
     dem_in: Path,
     out_dir: Path,
     flat_increment: Optional[float],
     max_raise_m: Optional[float],
+    exclude_outlet_mask: Optional[str] = None,
 ) -> Path:
     """
     Create a routing-only D4 surface with a bounded artificial rise to D4 outlets.
@@ -1841,6 +1909,22 @@ def build_d4_monotonic_routing_surface(
     boundary[-1, :] &= valid[-1, :]
     boundary[:, 0] &= valid[:, 0]
     boundary[:, -1] &= valid[:, -1]
+
+    if exclude_outlet_mask:
+        excluded = read_external_geometry_raster(
+            exclude_outlet_mask, profile, "D4 routing excluded-outlet mask"
+        )
+        excluded = valid & np.isfinite(excluded) & (excluded > 0)
+        boundary &= ~excluded
+        write_raster(
+            output_path(out_dir, "D4_routing_excluded_outlet_mask.tif"),
+            excluded.astype("float32"),
+            profile,
+            nodata=0.0,
+        )
+        print(f"[INFO] D4 boundary cells excluded as prescribed inflows = {int(excluded.sum()):,}")
+    if not np.any(boundary):
+        raise ValueError("D4 routing has no active outlet cells after applying the excluded-outlet mask.")
 
     heap: list[tuple[float, int]] = []
     boundary_idx = np.flatnonzero(boundary.ravel())
@@ -1898,6 +1982,179 @@ def build_d4_monotonic_routing_surface(
     print(f"[INFO] D4 routing cells processed = {processed:,}")
     print(f"[SAVED] {out_path}")
     return out_path
+
+
+def _d4_priority_flood(
+    dem: np.ndarray,
+    nodata: Optional[float],
+    flat_increment: float,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return a D4 spill surface, its route to an active-domain outlet, and outlets.
+
+    This is deliberately separate from the routing-only surface.  The parent
+    links let us turn a *short, bounded* artificial pit into an actual D4
+    breach by lowering its sill.  Long Himalayan basins remain QA findings,
+    never automatic terrain edits.
+    """
+    valid = valid_mask(dem, nodata)
+    rows, cols = dem.shape
+    filled = np.full(dem.shape, np.nan, dtype="float64")
+    parent = np.full(dem.shape, -1, dtype=np.int64)
+    visited = np.zeros(dem.shape, dtype=bool)
+
+    outlet = valid.copy()
+    outlet[1:-1, 1:-1] = (
+        valid[1:-1, 1:-1]
+        & (
+            ~valid[:-2, 1:-1]
+            | ~valid[2:, 1:-1]
+            | ~valid[1:-1, :-2]
+            | ~valid[1:-1, 2:]
+        )
+    )
+    outlet[0, :] &= valid[0, :]
+    outlet[-1, :] &= valid[-1, :]
+    outlet[:, 0] &= valid[:, 0]
+    outlet[:, -1] &= valid[:, -1]
+
+    heap: list[tuple[float, int]] = []
+    flat_dem = dem.astype("float64", copy=False).ravel()
+    flat_filled = filled.ravel()
+    flat_visited = visited.ravel()
+    flat_valid = valid.ravel()
+    for idx in np.flatnonzero(outlet.ravel()):
+        flat_filled[idx] = flat_dem[idx]
+        flat_visited[idx] = True
+        heapq.heappush(heap, (float(flat_dem[idx]), int(idx)))
+
+    eps = max(float(flat_increment), 1e-6)
+    while heap:
+        elevation, idx = heapq.heappop(heap)
+        row, col = divmod(idx, cols)
+        for offset in (-cols, cols, -1, 1):
+            if (offset == -cols and row == 0) or (offset == cols and row == rows - 1):
+                continue
+            if (offset == -1 and col == 0) or (offset == 1 and col == cols - 1):
+                continue
+            neighbour = idx + offset
+            if flat_visited[neighbour] or not flat_valid[neighbour]:
+                continue
+            flat_visited[neighbour] = True
+            flat_filled[neighbour] = max(flat_dem[neighbour], elevation + eps)
+            parent.ravel()[neighbour] = idx
+            heapq.heappush(heap, (float(flat_filled[neighbour]), int(neighbour)))
+
+    return filled, parent, outlet
+
+
+def condition_d4_surface_pits(
+    dem: np.ndarray,
+    profile: dict,
+    pit_min_depth_m: float = 5.0,
+    max_lowering_m: float = 25.0,
+    max_length_cells: int = 20,
+    flat_increment: float = 0.01,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
+    """Breach only short, bounded D4 pits and return full QA information.
+
+    A candidate must be an interior no-flow cell whose D4 spill depth exceeds
+    ``pit_min_depth_m``.  Its priority-flood parent path is carved only when
+    it reaches an active-domain outlet within ``max_length_cells`` and the
+    required lowering never exceeds ``max_lowering_m``.  Rejected candidates
+    are retained in the ledger so coarse mountain basins cannot be silently
+    converted into artificial channels.
+    """
+    nodata = profile.get("nodata", -9999.0)
+    valid = valid_mask(dem, nodata)
+    if not np.any(valid):
+        raise ValueError("D4 surface conditioning requires at least one valid DEM cell.")
+    if pit_min_depth_m < 0 or max_lowering_m <= 0 or max_length_cells < 1:
+        raise ValueError("D4 surface-breach limits must be positive (pit depth may be zero).")
+
+    filled, parent, outlet = _d4_priority_flood(dem, nodata, flat_increment)
+    pit_depth = np.full(dem.shape, np.nan, dtype="float32")
+    pit_depth[valid] = (filled[valid] - dem[valid]).astype("float32")
+
+    _, receiver = compute_d4_flow_accumulation(dem, profile, nodata)
+    candidates = np.flatnonzero(
+        valid.ravel()
+        & ~outlet.ravel()
+        & (receiver.ravel() < 0)
+        & (pit_depth.ravel() >= float(pit_min_depth_m))
+    )
+    candidates = candidates[np.argsort(pit_depth.ravel()[candidates])[::-1]]
+
+    rows, cols = dem.shape
+    original = dem.astype("float64", copy=False).ravel()
+    conditioned = original.copy()
+    ledger = []
+    eps = max(float(flat_increment), 1e-6)
+    for sink in candidates:
+        path = [int(sink)]
+        while parent.ravel()[path[-1]] >= 0 and len(path) <= max_length_cells + 1:
+            path.append(int(parent.ravel()[path[-1]]))
+        reaches_outlet = bool(outlet.ravel()[path[-1]])
+        path_length = len(path) - 1
+        source_elevation = original[sink]
+        targets = np.array([source_elevation - eps * step for step in range(len(path))])
+        cuts = np.maximum(0.0, original[np.asarray(path)] - targets)
+        max_cut = float(np.max(cuts))
+        accepted = reaches_outlet and path_length <= max_length_cells and max_cut <= max_lowering_m
+        reason = "accepted" if accepted else (
+            "path_too_long" if path_length > max_length_cells else
+            "no_active_domain_outlet" if not reaches_outlet else
+            "lowering_limit_exceeded"
+        )
+        if accepted:
+            indices = np.asarray(path, dtype=np.int64)
+            conditioned[indices] = np.minimum(conditioned[indices], targets)
+        row, col = divmod(int(sink), cols)
+        end_row, end_col = divmod(path[-1], cols)
+        ledger.append({
+            "sink_row": row,
+            "sink_col": col,
+            "sink_elevation_m": float(source_elevation),
+            "spill_depth_m": float(pit_depth.ravel()[sink]),
+            "path_length_cells": path_length,
+            "outlet_row": end_row,
+            "outlet_col": end_col,
+            "cells_lowered": int(np.count_nonzero(cuts > 0)),
+            "max_lowering_m": max_cut,
+            "total_lowering_m": float(np.sum(cuts)),
+            "accepted": accepted,
+            "reason": reason,
+        })
+
+    conditioned = conditioned.reshape(dem.shape)
+    conditioned[~valid] = dem[~valid]
+    lowering = np.zeros(dem.shape, dtype="float32")
+    lowering[valid] = (dem[valid] - conditioned[valid]).astype("float32")
+    return conditioned.astype("float32"), pit_depth, lowering, pd.DataFrame(ledger)
+
+
+def condition_d4_surface_pits_file(
+    dem_in: Path,
+    out_dir: Path,
+    pit_min_depth_m: float,
+    max_lowering_m: float,
+    max_length_cells: int,
+    flat_increment: float,
+) -> Path:
+    """Apply conservative D4 surface breaching and write auditable products."""
+    print_header("D4 surface-pit conditioning")
+    dem, profile = read_raster(dem_in)
+    conditioned, pit_depth, lowering, ledger = condition_d4_surface_pits(
+        dem, profile, pit_min_depth_m, max_lowering_m, max_length_cells, flat_increment,
+    )
+    output = output_path(out_dir, "DEM_hydrologically_conditioned_D4_breached_pre_bathymetry.tif")
+    write_raster(output, conditioned, profile, nodata=profile.get("nodata", -9999.0))
+    write_raster(output_path(out_dir, "D4_surface_pit_spill_depth_m.tif"), pit_depth, profile, nodata=-9999.0)
+    write_raster(output_path(out_dir, "D4_surface_breach_lowering_m.tif"), lowering, profile, nodata=-9999.0)
+    ledger.to_csv(output_path(out_dir, "D4_surface_breach_ledger.csv"), index=False)
+    accepted = int(ledger["accepted"].sum()) if not ledger.empty else 0
+    print(f"[INFO] D4 pit candidates = {len(ledger):,}; accepted bounded breaches = {accepted:,}")
+    print(f"[SAVED] {output}")
+    return output
 
 
 def rectangular_conveyance_term(width: np.ndarray, depth: np.ndarray) -> np.ndarray:
@@ -2037,9 +2294,12 @@ def wbt_preliminary_breach_for_d4_routing(wbt, cfg: DEMConditioningConfig, dem_i
     pitless = output_path(out_dir, "DEM_preD4_single_cell_pits_breached.tif")
     routing_dem = output_path(out_dir, "DEM_prebreached_for_D4_routing.tif")
 
-    print("[WBT] Breaching single-cell pits for D4 routing DEM...")
-    wbt.breach_single_cell_pits(str(dem_in), str(pitless))
-    normalize_existing_raster(pitless)
+    if cfg.breach_single_cell_pits:
+        print("[WBT] Breaching single-cell pits for D4 routing DEM...")
+        wbt.breach_single_cell_pits(str(dem_in), str(pitless))
+        normalize_existing_raster(pitless)
+    else:
+        pitless = dem_in
 
     if cfg.use_least_cost_breaching:
         print("[WBT] Least-cost breaching for D4 routing DEM...")
@@ -2330,6 +2590,23 @@ def automatic_d4_hydraulic_channel_carving(
             base_profile,
             nodata=-9999.0,
         )
+    channel_surface_lowering = np.zeros_like(channel_surface, dtype="float32")
+    if cfg.condition_d4_channel_surface:
+        channel_surface, channel_surface_lowering = condition_d4_channel_surface(
+            channel_surface,
+            H,
+            river_mask & valid_base,
+            receiver,
+            base_profile,
+            cfg.channel_bed_min_slope,
+            cfg.channel_bed_surface_max_lowering_m,
+        )
+        write_raster(
+            output_path(out_dir, "D4_Neal_channel_surface_lowering_m.tif"),
+            channel_surface_lowering,
+            base_profile,
+            nodata=-9999.0,
+        )
 
     H_abg = compute_equivalent_H_abg(
         B,
@@ -2412,6 +2689,8 @@ def automatic_d4_hydraulic_channel_carving(
         "channel_bed_depth_adjusted_cells": int(adjusted.size),
         "channel_bed_depth_adjustment_max_m": float(np.nanmax(adjusted)) if adjusted.size else 0.0,
         "channel_bed_depth_adjustment_p99_m": float(np.nanpercentile(adjusted, 99)) if adjusted.size else 0.0,
+        "channel_bed_surface_lowered_cells": int(np.count_nonzero(channel_surface_lowering > 0)),
+        "channel_bed_surface_lowering_max_m": float(np.nanmax(channel_surface_lowering)) if np.any(channel_surface_lowering > 0) else 0.0,
     }
 
     rows = []
@@ -2531,9 +2810,12 @@ def wbt_breach_pipeline(
     breached = output_path(out_dir, "DEM_02_breached.tif")
     final = output_path(out_dir, final_name)
 
-    print("[WBT] Breaching single-cell pits...")
-    wbt.breach_single_cell_pits(str(dem_in), str(pitless))
-    normalize_existing_raster(pitless)
+    if cfg.breach_single_cell_pits:
+        print("[WBT] Breaching single-cell pits...")
+        wbt.breach_single_cell_pits(str(dem_in), str(pitless))
+        normalize_existing_raster(pitless)
+    else:
+        pitless = dem_in
 
     if cfg.use_least_cost_breaching:
         print("[WBT] Least-cost breaching depressions...")
@@ -3340,6 +3622,15 @@ def print_run_summary(cfg: DEMConditioningConfig, out_dir: Path) -> None:
     print(f"Vector stream burn     : {bool(cfg.streams and cfg.stream_burn_depth_m > 0)}")
     print(f"Crossing/culvert burn  : {bool(cfg.crossings and cfg.crossing_burn_depth_m > 0)}")
     print(f"Least-cost breaching   : {cfg.use_least_cost_breaching}")
+    print(f"Single-cell pit breach : {cfg.breach_single_cell_pits}")
+    print(f"D4 channel-surface fix : {cfg.condition_d4_channel_surface}")
+    if cfg.condition_d4_channel_surface:
+        print(f"  maximum lowering     : {cfg.channel_bed_surface_max_lowering_m} m")
+    print(f"D4 surface-pit breach  : {cfg.condition_surface_d4}")
+    if cfg.condition_surface_d4:
+        print(f"  minimum spill depth  : {cfg.d4_surface_pit_min_depth_m} m")
+        print(f"  maximum lowering     : {cfg.d4_surface_breach_max_lowering_m} m")
+        print(f"  maximum path length  : {cfg.d4_surface_breach_max_length_cells} cells")
     print(f"Residual filling       : {cfg.fill_residual_depressions}")
 
 
@@ -3385,6 +3676,16 @@ def run_pipeline(cfg: DEMConditioningConfig) -> None:
         final_name="DEM_hydrologically_conditioned_pre_bathymetry.tif",
     )
 
+    if cfg.condition_surface_d4:
+        hydrologic_conditioned = condition_d4_surface_pits_file(
+            hydrologic_conditioned,
+            out_dir,
+            cfg.d4_surface_pit_min_depth_m,
+            cfg.d4_surface_breach_max_lowering_m,
+            cfg.d4_surface_breach_max_length_cells,
+            cfg.breach_flat_increment,
+        )
+
     terrain_before_vector_enforcement = hydrologic_conditioned
     if cfg.auto_rivers_d4:
         if cfg.external_river_network:
@@ -3395,6 +3696,7 @@ def run_pipeline(cfg: DEMConditioningConfig) -> None:
                 out_dir,
                 cfg.breach_flat_increment,
                 cfg.d4_routing_max_raise_m,
+                cfg.d4_routing_exclude_outlet_mask,
             )
         terrain_before_vector_enforcement = automatic_d4_hydraulic_channel_carving(
             cfg,
@@ -3578,11 +3880,26 @@ Print full documentation:
                    help="Safety cap for HydroPol2D H_abg, the DEM reduction depth in creeks [m].")
     p.add_argument("--d4-routing-max-raise-m", type=float, default=None,
                    help="Optional maximum artificial elevation raise used only for D4 network extraction.")
+    p.add_argument("--d4-routing-exclude-outlet-mask", default=None,
+                   help="Raster mask of prescribed-inflow boundary cells that must drain to another D4 outlet.")
+    p.add_argument("--condition-surface-d4", action="store_true",
+                   help="Apply only short, bounded D4 terrain breaches to the DEM used by HydroPol2D.")
+    p.add_argument("--d4-surface-pit-min-depth-m", type=float, default=5.0,
+                   help="Minimum D4 spill depth required before a pit is considered for breaching [m].")
+    p.add_argument("--d4-surface-breach-max-lowering-m", type=float, default=15.0,
+                   help="Reject a D4 breach if any cell would be lowered more than this amount [m].")
+    p.add_argument("--d4-surface-breach-max-length-cells", type=int, default=5,
+                   help="Reject a D4 breach if its outlet path exceeds this cardinal-cell length.")
     p.add_argument("--no-condition-d4-channel-bed", action="store_true",
                    help="Disable downstream subgrid-bed conditioning after D4 geometry is assigned.")
     p.add_argument("--channel-bed-min-slope", type=float, default=1e-5,
                    help="Minimum downstream Neal channel-bed slope imposed along D4 links.")
+    p.add_argument("--condition-d4-channel-surface", action="store_true",
+                   help="Lower capped downstream channel surfaces enough to remove residual D4 Neal bed sills.")
+    p.add_argument("--channel-bed-surface-max-lowering-m", type=float, default=15.0,
+                   help="Maximum cumulative lowering permitted per channel cell for residual D4 bed-sill removal.")
 
+    p.add_argument("--no-breach-single-cell-pits", action="store_true")
     p.add_argument("--no-least-cost-breaching", action="store_true")
     p.add_argument("--breach-dist-cells", type=int, default=10000)
     p.add_argument("--breach-max-cost", type=float, default=None)
@@ -3675,8 +3992,20 @@ Print full documentation:
     put("river_depth_cap_m", a.river_depth_cap_m, "--river-depth-cap-m")
     put("max_H_abg_m", a.max_H_abg_m, "--max-H-abg-m", "--max-carve-depth-m")
     put("d4_routing_max_raise_m", a.d4_routing_max_raise_m, "--d4-routing-max-raise-m")
+    put("d4_routing_exclude_outlet_mask", a.d4_routing_exclude_outlet_mask,
+        "--d4-routing-exclude-outlet-mask")
+    put("condition_surface_d4", a.condition_surface_d4, "--condition-surface-d4")
+    put("d4_surface_pit_min_depth_m", a.d4_surface_pit_min_depth_m, "--d4-surface-pit-min-depth-m")
+    put("d4_surface_breach_max_lowering_m", a.d4_surface_breach_max_lowering_m,
+        "--d4-surface-breach-max-lowering-m")
+    put("d4_surface_breach_max_length_cells", a.d4_surface_breach_max_length_cells,
+        "--d4-surface-breach-max-length-cells")
     put("condition_d4_channel_bed", not a.no_condition_d4_channel_bed, "--no-condition-d4-channel-bed")
     put("channel_bed_min_slope", a.channel_bed_min_slope, "--channel-bed-min-slope")
+    put("condition_d4_channel_surface", a.condition_d4_channel_surface, "--condition-d4-channel-surface")
+    put("channel_bed_surface_max_lowering_m", a.channel_bed_surface_max_lowering_m,
+        "--channel-bed-surface-max-lowering-m")
+    put("breach_single_cell_pits", not a.no_breach_single_cell_pits, "--no-breach-single-cell-pits")
     put("use_least_cost_breaching", not a.no_least_cost_breaching, "--no-least-cost-breaching")
     put("breach_dist_cells", a.breach_dist_cells, "--breach-dist-cells")
     put("breach_max_cost", a.breach_max_cost, "--breach-max-cost")
