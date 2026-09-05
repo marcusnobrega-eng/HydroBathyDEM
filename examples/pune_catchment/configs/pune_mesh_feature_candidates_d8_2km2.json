@@ -1,0 +1,44 @@
+{
+  "inputs": {
+    "dem": "examples/pune_catchment/outputs/hydrobathy_20km2_corrected_dem/dem/DEM_raw_cleaned.tif",
+    "domain_vector": "examples/pune_catchment/data/pune_full_valid_domain.geojson",
+    "river_mask": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_river_mask_2km2.tif",
+    "river_direction": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_flow_direction.tif",
+    "river_width": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_river_width_m.tif",
+    "river_upstream_area": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_upstream_area_km2.tif",
+    "out_dir": "examples/pune_catchment/outputs/pune_mesh_feature_candidates_d8_2km2"
+  },
+  "routing_scheme": "d8",
+  "rivers": {
+    "major_river_min_upstream_area_km2": 50,
+    "major_river_min_width_m": 45
+  },
+  "floodplain": {
+    "floodplain_max_hand_m": 8,
+    "floodplain_max_distance_m": 900,
+    "floodplain_min_width_m": 120,
+    "floodplain_min_area_m2": 100000,
+    "floodplain_max_hole_fill_area_m2": 100000,
+    "simplify_tolerance_m": 30
+  },
+  "breaklines": {
+    "waterbody_vector": "examples/pune_catchment/data/hydrolakes/hydrolakes_pune_domain.gpkg",
+    "waterbody_min_area_m2": 20000,
+    "waterbody_max_distance_to_river_m": 300,
+    "refine_waterbodies_from_dem": true,
+    "waterbody_refine_buffer_m": 300,
+    "waterbody_refine_elevation_tolerance_m": 2,
+    "waterbody_refine_relief_window_m": 90,
+    "waterbody_refine_max_relief_m": 3,
+    "waterbody_refine_min_area_ratio": 0.25,
+    "waterbody_refine_max_area_ratio": 2,
+    "barrier_min_length_m": 90,
+    "barrier_filter_to_waterbody_edges": true,
+    "barrier_max_distance_to_waterbody_m": 120,
+    "suppress_centerlines_inside_waterbodies": true
+  },
+  "osm": {
+    "fetch_osm_waterbodies": false,
+    "fetch_osm_barriers": true
+  }
+}

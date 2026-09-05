@@ -1,0 +1,33 @@
+{
+  "mesh_mode": "voronoi_fv",
+  "inputs": {
+    "dem": "examples/pune_catchment/outputs/hydrobathy_20km2_corrected_dem/dem/DEM_hydraulic_conditioned.tif",
+    "out_dir": "examples/pune_catchment/outputs/pune_design_corridor_mesh_full_domain_step5",
+    "domain_vector": "examples/pune_catchment/data/pune_full_valid_domain.geojson",
+    "diagnostic_window": "examples/pune_catchment/data/pune_mesh_connected_floodplain_window.geojson",
+    "diagnostic_windows": "examples/pune_catchment/data/pune_floodplain_orientation_windows.geojson",
+    "impervious": "examples/pune_catchment/data/pune_corrected_30m/pune_impervious_from_esa_lulc_30m.tif",
+    "river_mask": "examples/pune_catchment/outputs/hydrobathy_20km2_corrected_dem/d4/D4_idx_facc.tif",
+    "river_direction": "examples/pune_catchment/outputs/hydrobathy_20km2_corrected_dem/d4/D4_flow_direction.tif",
+    "river_width": "examples/pune_catchment/outputs/hydrobathy_20km2_corrected_dem/d4/D4_Wshed_Properties_River_Width_m.tif",
+    "river_network": "examples/pune_catchment/data/lin2020/processed/lin2020_dem_domain_width_depth.gpkg",
+    "river_width_field": "width_m",
+    "floodplain_vector": "examples/pune_catchment/outputs/pune_design_corridor_gcn250/D4_design_floodplain_corridor_100yr.gpkg",
+    "floodplain_direction": "examples/pune_catchment/outputs/pune_design_corridor_gcn250/D4_design_floodplain_flow_direction.tif",
+    "floodplain_axis": "examples/pune_catchment/outputs/pune_design_corridor_gcn250/D4_design_floodplain_axis_mask.tif"
+  },
+  "resolution": {
+    "background_width_m": 120,
+    "urban_width_m": 45,
+    "river_along_river_cell_length_m": 30,
+    "river_cross_river_target_width_m": 90,
+    "floodplain_along_river_cell_length_m": 40,
+    "floodplain_cross_river_target_width_m": 90,
+    "minimum_cell_width_m": 30,
+    "maximum_adjacent_size_ratio": 2
+  },
+  "rivers": {"source": "hydrobathydem_d4", "unresolved_policy": "none"},
+  "urban": {"impervious_threshold_percent": 1, "population_threshold_per_km2": 1000, "buffer_m": 300},
+  "quality": {"minimum_face_length_factor": 0.25, "minimum_center_distance_factor": 0.5, "quality_repair_max_iterations": 0, "stop_after_step": 5},
+  "max_seed_count": 1200000
+}

@@ -244,15 +244,54 @@ resolution controls are:
 |---|---|---|
 | `background_width_m` | Rural/background target width | Controls most cells in large rural domains |
 | `urban_width_m` | Urban/impervious target width | Refines populated and built-up areas |
-| `river_along_river_cell_length_m` | Cell length along mapped rivers | Controls longitudinal river resolution |
-| `river_cross_river_target_width_m` | Cell width across mapped rivers | Controls cross-channel resolution |
+| `rivers.cell_style` | `structured_strip` (default) or `voronoi` | Chooses whether river cells are built from the centreline or inferred from the Voronoi diagram |
+| `river_along_river_cell_length_m` | Cell length along mapped rivers | Station spacing of the river ribbon; prescribes longitudinal river resolution |
+| `river_cross_river_target_width_m` | Cell width across mapped rivers | Cross-band width of the river ribbon; prescribes cross-channel resolution |
 | `floodplain_target_width_m` | Isotropic floodplain target width | Controls overbank refinement |
 | `minimum_cell_width_m` | Hard hydraulic dimension floor | Protects cell count and timestep |
 | `maximum_adjacent_size_ratio` | Requested transition ratio | Smooths target-size changes |
 | `minimum_face_length_factor` | Minimum face length divided by minimum cell width | Prevents tiny finite-volume faces |
 | `minimum_center_distance_factor` | Minimum center spacing divided by minimum cell width | Protects the CFL length |
 
+Mesh QA reports the conformity of the exported topology alongside the resolution
+metrics. `interior_unpaired_face_count` counts faces that have one owner but are
+not on the domain edge; every one of those is a closed wall inside the mesh, and
+`_edge_quality` cannot see them because it only inspects faces that already have
+two owners. `non_collinear_merged_faces` and `merged_face_length_deficit_m`
+report where two cells meet along segments pointing different ways, so the one
+face they are merged into is narrower than the wetted interface.
+`examples/pune_catchment/validate_mesh_ugrid.py` checks the exported NetCDF
+independently, including that each cell's outward face normals sum to zero.
+
+#### River cell style
+
+`rivers.cell_style` decides how river cells come into existence.
+
+`structured_strip` (the default) builds them directly: each reach is stationed
+every `river_along_river_cell_length_m`, cross-sections are offset by half the
+mapped width, and the quadrilaterals between consecutive stations become the
+cells. Cross-stream size is therefore prescribed by the mapped width and
+longitudinal size by the station spacing, and the union of those cells *is* the
+computational channel. The channel is not seeded into the Voronoi diagram at
+all, so no river generator can claim a large off-channel polygon. Where a bend
+is tighter than the channel is wide, a normal-offset ribbon cannot stay single
+valued; the half width is capped at the point where consecutive cross-sections
+would cross, and the capped value is exported per cell as `channel_width_m`.
+
+`voronoi` keeps the earlier behaviour, in which river cells are whichever
+Voronoi cells end up covering enough of a buffered centreline. Under that style
+`river_cross_river_target_width_m` only influences seed spacing, so a river cell
+can be several times wider than the channel it represents.
+
+Each river cell carries its provenance in the GeoPackage `mesh` layer and in the
+UGRID file: `reach_id`, `cross_band`, `station_start_m`, `station_end_m`, and
+`channel_width_m` (`cell_*` prefixed in NetCDF). Bank lines are written to the
+`river_bank_breaklines` layer.
+
 The production package contains:
+
+The file conventions, mandatory metadata, index bases, and validation rules are
+defined in [UNSTRUCTURED_MESH_CONTRACT.md](UNSTRUCTURED_MESH_CONTRACT.md).
 
 ```text
 mesh/hydropol_hybrid_mesh.nc
@@ -707,8 +746,8 @@ python3 -m build
 This writes:
 
 ```text
-dist/hydrobathydem-0.1.0.tar.gz
-dist/hydrobathydem-0.1.0-py3-none-any.whl
+dist/hydrobathydem-0.3.0rc1.tar.gz
+dist/hydrobathydem-0.3.0rc1-py3-none-any.whl
 ```
 
 ## Citation And Data Sources

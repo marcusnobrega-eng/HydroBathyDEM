@@ -1,0 +1,28 @@
+{
+  "inputs": {
+    "dem": "examples/pune_catchment/data/pune_corrected_30m/pune_dem_corrected_aligned_30m.tif",
+    "fallback_dem": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/DEM_D8_filled_routing_surface.tif",
+    "river_mask": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_river_mask_2km2.tif",
+    "river_direction": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_flow_direction.tif",
+    "river_width": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_river_width_m.tif",
+    "river_depth": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_river_depth_m.tif",
+    "river_bed": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_river_bed_elevation_m.tif",
+    "design_peak": "examples/pune_catchment/outputs/pune_design_hydrograph_gcn250_d8_2km2/D8_SCS_HUT_Qp_100yr_m3s.tif",
+    "out_dir": "examples/pune_catchment/outputs/pune_design_corridor_gcn250_d8_2km2"
+  },
+  "routing": {"routing_scheme": "d8"},
+  "hydraulics": {
+    "channel_manning_n": 0.035,
+    "floodplain_manning_n": 0.05,
+    "minimum_slope": 0.0001,
+    "maximum_slope": 0.05,
+    "cross_section_spacing_m": 150,
+    "slope_window_m": 600,
+    "bank_sampling_width_m": 90,
+    "bank_smoothing_window_m": 600,
+    "centerline_simplification_m": 45,
+    "floodplain_axis_min_upstream_area_km2": 0.02,
+    "max_half_width_m": 2000,
+    "max_stage_above_bank_m": 20
+  }
+}

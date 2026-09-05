@@ -3,7 +3,7 @@
 This intentionally does *not* rebuild CN from local land cover or soil data.
 It crops/resamples the published AMC-II GCN250 raster, then calculates the
 area-weighted composite CN, SCS event runoff, and the SCS dimensionless-unit-
-hydrograph peak at every D4 river cell.  The resulting design discharge is an
+hydrograph peak at every D4 or D8 river cell.  The resulting design discharge is an
 input to mesh-corridor design; it is not a flood map or a HydroPol boundary.
 """
 
@@ -46,6 +46,7 @@ class DesignHydrographConfig:
     idf_c: float
     river_direction: Path | None = None
     contributing_area: Path | None = None
+    routing_scheme: str = "d4"
     return_period_yr: float = 100.0
     initial_abstraction_ratio: float = 0.20
     storm_duration_ratio_to_tc: float = 0.133
@@ -57,11 +58,11 @@ class DesignHydrographConfig:
     @classmethod
     def from_mapping(cls, values: dict[str, Any]) -> "DesignHydrographConfig":
         values = dict(values)
-        grouped = {name: values.pop(name, {}) for name in ("inputs", "idf", "scs", "hut")}
+        grouped = {name: values.pop(name, {}) for name in ("inputs", "routing", "idf", "scs", "hut")}
         for name, group in grouped.items():
             if group and not isinstance(group, dict):
                 raise ValueError(f"{name} must be a configuration object.")
-        values = {**grouped["inputs"], **grouped["idf"], **grouped["scs"], **grouped["hut"], **values}
+        values = {**grouped["inputs"], **grouped["routing"], **grouped["idf"], **grouped["scs"], **grouped["hut"], **values}
         aliases = {
             "cn_path": "cn", "dem_path": "dem", "river_mask_path": "river_mask", "output_dir": "out_dir",
             "k": "idf_k", "a": "idf_a", "b": "idf_b_min", "c": "idf_c",
@@ -79,6 +80,8 @@ class DesignHydrographConfig:
             raise ValueError("IDF and time-of-concentration parameters must be positive.")
         if not 0.0 < config.minimum_cn_coverage_fraction <= 1.0:
             raise ValueError("minimum_cn_coverage_fraction must be in (0, 1].")
+        if config.routing_scheme not in {"d4", "d8"}:
+            raise ValueError("routing.routing_scheme must be 'd4' or 'd8'.")
         return config
 
 
@@ -151,8 +154,27 @@ def receiver_from_d4_direction(direction: np.ndarray) -> np.ndarray:
     return receiver
 
 
+def receiver_from_d8_direction(direction: np.ndarray) -> np.ndarray:
+    """Convert 1=N, 2=NE, 3=E, ..., 8=NW codes to receivers."""
+    rows, cols = direction.shape
+    receiver = np.full(direction.shape, -1, dtype=np.int64)
+    index = np.arange(rows * cols, dtype=np.int64).reshape(rows, cols)
+    offsets = {
+        1: (-1, 0), 2: (-1, 1), 3: (0, 1), 4: (1, 1),
+        5: (1, 0), 6: (1, -1), 7: (0, -1), 8: (-1, -1),
+    }
+    for code, (drow, dcol) in offsets.items():
+        source_rows = slice(max(0, -drow), min(rows, rows - drow))
+        source_cols = slice(max(0, -dcol), min(cols, cols - dcol))
+        target_rows = slice(max(0, drow), min(rows, rows + drow))
+        target_cols = slice(max(0, dcol), min(cols, cols + dcol))
+        select = direction[source_rows, source_cols] == code
+        receiver[source_rows, source_cols][select] = index[target_rows, target_cols][select]
+    return receiver
+
+
 def _d4_topological_order(receiver: np.ndarray, valid: np.ndarray) -> np.ndarray:
-    """Order a D4 DAG upstream-to-downstream without assuming surface elevations."""
+    """Order a single-flow-direction DAG upstream-to-downstream."""
     flat_receiver = receiver.ravel().copy()
     flat_valid = valid.ravel()
     flat_receiver[~flat_valid] = -1
@@ -171,12 +193,12 @@ def _d4_topological_order(receiver: np.ndarray, valid: np.ndarray) -> np.ndarray
             if indegree[downstream] == 0:
                 queue.append(downstream)
     if n != len(order):
-        raise ValueError("D4 direction contains a cycle; cannot accumulate CN or travel time.")
+        raise ValueError("Flow direction contains a cycle; cannot accumulate CN or travel time.")
     return order
 
 
 def _upstream_composite_cn(cn: np.ndarray, receiver: np.ndarray, order: np.ndarray, cell_area_km2: float) -> tuple[np.ndarray, np.ndarray]:
-    """Accumulate CN-area and area once through an authoritative D4 DAG."""
+    """Accumulate CN-area and area once through an authoritative routing DAG."""
     flat_cn, flat_receiver = cn.ravel(), receiver.ravel()
     area = np.where(np.isfinite(flat_cn), cell_area_km2, 0.0)
     cn_area = np.where(np.isfinite(flat_cn), flat_cn * cell_area_km2, 0.0)
@@ -190,7 +212,7 @@ def _upstream_composite_cn(cn: np.ndarray, receiver: np.ndarray, order: np.ndarr
 
 
 def _longest_d4_paths(dem: np.ndarray, receiver: np.ndarray, order: np.ndarray, dx_m: float, dy_m: float) -> tuple[np.ndarray, np.ndarray]:
-    """Longest contributing D4 path and its drop to each cell, in metres."""
+    """Longest contributing path and its drop, including diagonal links."""
     flat_dem, flat_receiver = dem.ravel(), receiver.ravel()
     ncols = dem.shape[1]
     length = np.zeros(flat_dem.size, dtype=np.float64)
@@ -199,7 +221,9 @@ def _longest_d4_paths(dem: np.ndarray, receiver: np.ndarray, order: np.ndarray, 
         downstream = int(flat_receiver[item])
         if downstream < 0:
             continue
-        distance = dy_m if item // ncols != downstream // ncols else dx_m
+        row, col = divmod(int(item), ncols)
+        downstream_row, downstream_col = divmod(downstream, ncols)
+        distance = np.hypot((row - downstream_row) * dy_m, (col - downstream_col) * dx_m)
         candidate = length[item] + distance
         if candidate > length[downstream]:
             length[downstream] = candidate
@@ -230,20 +254,26 @@ def build_design_hydrograph(config: DesignHydrographConfig) -> dict[str, Any]:
         profile = source.profile.copy()
         cn_raw = _aligned_cn(config.cn, source)
         river = _aligned_mask(config.river_mask, source)
-        supplied_direction = _aligned_float(config.river_direction, source, "D4 flow direction") if config.river_direction else None
-        supplied_area = _aligned_float(config.contributing_area, source, "D4 contributing area") if config.contributing_area else None
+        supplied_direction = _aligned_float(config.river_direction, source, "flow direction") if config.river_direction else None
+        supplied_area = _aligned_float(config.contributing_area, source, "contributing area") if config.contributing_area else None
     valid_dem = np.isfinite(dem)
     cn, cn_fallback_cells = _fill_missing_cn_from_nearest(cn_raw, valid_dem)
     if supplied_direction is None:
+        if config.routing_scheme != "d4":
+            raise ValueError("D8 routing requires supplied flow-direction and contributing-area rasters.")
         accumulation, receiver = compute_d4_flow_accumulation(dem.astype(np.float32), profile, nodata=np.nan)
         contributing_area_km2 = accumulation * abs(profile["transform"].a * profile["transform"].e) / 1e6
         routing_source = "recomputed D4 from supplied DEM"
     else:
-        receiver = receiver_from_d4_direction(supplied_direction)
+        receiver = (
+            receiver_from_d8_direction(supplied_direction)
+            if config.routing_scheme == "d8"
+            else receiver_from_d4_direction(supplied_direction)
+        )
         if supplied_area is None:
             raise ValueError("inputs.contributing_area is required when inputs.river_direction is supplied.")
         contributing_area_km2 = supplied_area
-        routing_source = "HydroBathyDEM D4 direction and contributing-area products"
+        routing_source = f"HydroBathyDEM {config.routing_scheme.upper()} direction and contributing-area products"
     cell_area_km2 = abs(profile["transform"].a * profile["transform"].e) / 1e6
     order = _d4_topological_order(receiver, np.isfinite(dem))
     composite_cn, cn_covered_area_km2 = _upstream_composite_cn(cn, receiver, order, cell_area_km2)
@@ -273,15 +303,16 @@ def build_design_hydrograph(config: DesignHydrographConfig) -> dict[str, Any]:
         raise ValueError(
             f"Design peak is not finite at {int(missing_peak.sum()):,} mapped river cells."
         )
+    prefix = config.routing_scheme.upper()
     outputs = {
         "GCN250_CN_AMCII_model_grid.tif": cn,
-        "D4_composite_CN_AMCII.tif": composite_cn,
-        "D4_contributing_area_km2.tif": contributing_area_km2,
-        "D4_CN_coverage_fraction.tif": cn_coverage_fraction,
-        "D4_kirpich_tc_min.tif": tc_min,
-        "D4_design_storm_depth_mm.tif": precipitation_mm,
-        "D4_SCS_runoff_depth_mm.tif": runoff_mm,
-        "D4_SCS_HUT_Qp_100yr_m3s.tif": np.where(river, peak_m3_s, np.nan),
+        f"{prefix}_composite_CN_AMCII.tif": composite_cn,
+        f"{prefix}_contributing_area_km2.tif": contributing_area_km2,
+        f"{prefix}_CN_coverage_fraction.tif": cn_coverage_fraction,
+        f"{prefix}_kirpich_tc_min.tif": tc_min,
+        f"{prefix}_design_storm_depth_mm.tif": precipitation_mm,
+        f"{prefix}_SCS_runoff_depth_mm.tif": runoff_mm,
+        f"{prefix}_SCS_HUT_Qp_100yr_m3s.tif": np.where(river, peak_m3_s, np.nan),
     }
     out_dir = config.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -294,7 +325,7 @@ def build_design_hydrograph(config: DesignHydrographConfig) -> dict[str, Any]:
         paths[name] = str(path)
     active = river & np.isfinite(peak_m3_s)
     report = {
-        "method": "published GCN250 AMC-II -> D4 area-weighted CN -> SCS-CN -> SCS dimensionless UH peak",
+        "method": f"published GCN250 AMC-II -> {prefix} area-weighted CN -> SCS-CN -> SCS dimensionless UH peak",
         "routing_source": routing_source,
         "config": {key: str(value) if isinstance(value, Path) else value for key, value in asdict(config).items()},
         "mapped_river_cells": int(river.sum()),
@@ -323,7 +354,7 @@ def main_download(argv: list[str] | None = None) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Compute D4 composite CN and SCS-HUT design peak from ready-made GCN250.")
+    parser = argparse.ArgumentParser(description="Compute routed composite CN and SCS-HUT design peak from ready-made GCN250.")
     parser.add_argument("--config", required=True, type=Path)
     args = parser.parse_args(argv)
     print(json.dumps(build_design_hydrograph(DesignHydrographConfig.from_mapping(load_config_file(args.config))), indent=2))

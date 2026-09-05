@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydrobathydem"
-version = "0.2.0"
+version = "0.3.0rc1"
 description = "DEM conditioning, river bathymetry, and regular or adaptive Voronoi mesh products for flood models."
 readme = "README.md"
 requires-python = ">=3.10"
