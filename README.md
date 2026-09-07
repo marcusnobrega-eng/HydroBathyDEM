@@ -746,8 +746,8 @@ python3 -m build
 This writes:
 
 ```text
-dist/hydrobathydem-0.3.0rc1.tar.gz
-dist/hydrobathydem-0.3.0rc1-py3-none-any.whl
+dist/hydrobathydem-0.3.0.tar.gz
+dist/hydrobathydem-0.3.0-py3-none-any.whl
 ```
 
 ## Citation And Data Sources

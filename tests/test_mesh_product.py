@@ -62,7 +62,7 @@ def test_documented_regular_mode_packages_existing_grid(tmp_path: Path) -> None:
             np.hypot(dataset["edge_normal_x"][:], dataset["edge_normal_y"][:]), 1.0
         )
     manifest = json.loads(Path(result["manifest"]).read_text(encoding="utf-8"))
-    assert manifest["generator"]["version"] == "0.3.0rc1"
+    assert manifest["generator"]["version"] == "0.3.0"
     assert len(manifest["configuration_sha256"]) == 64
     assert {record["role"] for record in manifest["files"]} >= {
         "ugrid",

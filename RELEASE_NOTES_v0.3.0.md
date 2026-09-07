@@ -1,4 +1,4 @@
-# HydroBathyDEM v0.3.0rc1
+# HydroBathyDEM v0.3.0
 
 ## Purpose
 
