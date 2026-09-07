@@ -1,0 +1,12 @@
+{
+  "cells": 12330,
+  "cell_m": 90.0,
+  "fine_m": 5,
+  "river_cells": 611,
+  "nrow": 2208,
+  "ncol": 2754,
+  "ap_min": 9.708068789006308,
+  "river_pieces": 7,
+  "river_largest_pct": 96.39934533551555,
+  "river_km": 53.470242379408546
+}

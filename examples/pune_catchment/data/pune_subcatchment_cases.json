@@ -1,0 +1,600 @@
+{
+  "caseA": {
+    "case": "caseA",
+    "outlet_flat": 2008606,
+    "outlet_row": 755,
+    "outlet_col": 1061,
+    "outlet_x_utm43n": 358125.0,
+    "outlet_y_utm43n": 2075505.0,
+    "outlet_lon": 73.653985,
+    "outlet_lat": 18.766295,
+    "area_km2": 293.323,
+    "n_cells_30m": 325915,
+    "area_km2_published_uaa_raster": 293.323,
+    "drains_to_cell_flat": 2011266,
+    "connected_components_4": 2,
+    "connected_components_8": 1,
+    "max_flow_path_steps_probe": 199,
+    "max_d8_level_in_basin": 1374,
+    "river_length_km": 117.66,
+    "river_cells": 3922,
+    "river_density_km_per_km2": 0.401,
+    "river_width_m": {
+      "p0": 3.1994,
+      "p5": 3.429,
+      "p25": 5.0399,
+      "p50": 8.6482,
+      "p75": 19.0613,
+      "p90": 34.7387,
+      "p95": 36.9386,
+      "p99": 37.5341,
+      "p100": 37.6091
+    },
+    "river_width_mean_m": 13.258,
+    "river_pct_width_ge_30m": 14.07,
+    "river_pct_width_ge_90m": 0.0,
+    "bankfull_depth_m": {
+      "p0": 0.1434,
+      "p5": 0.1514,
+      "p25": 0.2044,
+      "p50": 0.3116,
+      "p75": 0.5772,
+      "p90": 0.922,
+      "p95": 0.9672,
+      "p99": 0.9794,
+      "p100": 0.9809
+    },
+    "bankfull_depth_mean_m": 0.4131,
+    "urban_pct": 39.95,
+    "urban_km2": 117.19,
+    "floodplain_pct": 9.6,
+    "floodplain_km2": 28.17,
+    "waterbody_pct": 0.0,
+    "waterbody_km2": 0.0,
+    "waterbodies": [],
+    "elev_min_m": 579.09,
+    "elev_max_m": 1086.98,
+    "relief_m": 507.9,
+    "elev_pct": {
+      "p0": 579.0871,
+      "p5": 608.5451,
+      "p25": 619.5151,
+      "p50": 644.7887,
+      "p75": 731.7636,
+      "p90": 879.4414,
+      "p95": 938.3142,
+      "p99": 983.8934,
+      "p100": 1086.9847
+    },
+    "elev_at_outlet_m": 580.76,
+    "dem_jump_30m_D4_m": {
+      "p0": 0.0,
+      "p5": 0.01,
+      "p25": 0.1636,
+      "p50": 0.738,
+      "p75": 3.853,
+      "p90": 9.2347,
+      "p95": 12.6363,
+      "p99": 18.8901,
+      "p100": 46.8494
+    },
+    "dem_jump_30m_D4_mean_m": 2.88,
+    "dem_jump_coarse_m": {
+      "30m": {
+        "p0": 0.0,
+        "p5": 0.01,
+        "p25": 0.1636,
+        "p50": 0.738,
+        "p75": 3.853,
+        "p90": 9.2347,
+        "p95": 12.6363,
+        "p99": 18.8901,
+        "p100": 46.8494
+      },
+      "90m": {
+        "p0": 0.0,
+        "p5": 0.0348,
+        "p25": 0.5136,
+        "p50": 2.1775,
+        "p75": 10.6634,
+        "p90": 25.7788,
+        "p95": 34.9603,
+        "p99": 49.9634,
+        "p100": 81.3187
+      },
+      "150m": {
+        "p0": 0.0,
+        "p5": 0.064,
+        "p25": 0.8659,
+        "p50": 3.5634,
+        "p75": 16.5263,
+        "p90": 40.3017,
+        "p95": 53.2572,
+        "p99": 74.3078,
+        "p100": 111.92
+      },
+      "210m": {
+        "p0": 0.0,
+        "p5": 0.0957,
+        "p25": 1.2091,
+        "p50": 4.949,
+        "p75": 22.0973,
+        "p90": 53.3913,
+        "p95": 69.1896,
+        "p99": 94.3811,
+        "p100": 126.7057
+      }
+    },
+    "dem_jump_coarse_max_m": {
+      "30m": 46.85,
+      "90m": 81.32,
+      "150m": 111.92,
+      "210m": 126.71
+    },
+    "inside_valid_domain_pct": 98.776,
+    "clip_window_rowcol": [
+      304,
+      966,
+      164,
+      1072
+    ],
+    "clip_shape": [
+      663,
+      909
+    ],
+    "clip_bounds_utm43n": [
+      331200.0,
+      2069160.0,
+      358470.0,
+      2089050.0
+    ],
+    "polygon_area_km2": 293.3235,
+    "polygon_n_parts": 2,
+    "polygon_n_holes": 0,
+    "files": {
+      "domain_geojson": "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA_domain.geojson",
+      "outlet_geojson": "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA_outlet.geojson",
+      "rasters": [
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_catchment_mask.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_d8_flow_direction.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_d8_river_bed_elevation_m.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_d8_river_depth_m.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_d8_river_mask_2km2.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_d8_river_width_m.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_d8_upstream_area_km2.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_dem_catchment_only_m.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_dem_hydraulic_conditioned_m.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_floodplain_mask.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_impervious_esa_pct.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_lulc_esa.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_soil.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_urban_mask.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseA/caseA_waterbody_id.tif"
+      ]
+    },
+    "verification": {
+      "d8_closure_downstream_ok": true,
+      "d8_closure_upstream_ok": true,
+      "d8_acyclic_ok": true,
+      "outlet_on_d8_river_mask": true,
+      "outlet_area_km2": 293.323,
+      "downstream_receiver_area_km2": 518.489,
+      "comp4_sizes_cells": [
+        325914,
+        1
+      ],
+      "comp8_count": 1,
+      "diagonal_only_cells": 1,
+      "interior_holes_count": 0,
+      "interior_hole_cells": [],
+      "interior_hole_km2": 0.0,
+      "fdir_valid_pct": 100.0,
+      "dem_valid_pct": 100.0,
+      "outside_pune_full_valid_domain_km2": 3.589,
+      "outside_pune_full_valid_domain_max_dist_m": 300.0
+    },
+    "subgrid_relevance": {
+      "90m": {
+        "n_cells": 36232,
+        "within_cell_relief_m": {
+          "p50": 4.041,
+          "p75": 18.304,
+          "p90": 33.75,
+          "p95": 41.852,
+          "p99": 55.682,
+          "p100": 93.083
+        },
+        "within_cell_relief_mean_m": 11.339,
+        "within_cell_std_m": {
+          "p50": 1.311,
+          "p75": 6.011,
+          "p90": 10.914,
+          "p95": 13.492,
+          "p99": 17.811,
+          "p100": 29.785
+        },
+        "pct_cells_with_river": 4.7,
+        "river_cell_max_mapped_width_m": {
+          "p50": 8.645,
+          "p75": 18.386,
+          "p90": 34.61,
+          "p95": 36.887,
+          "p99": 37.528,
+          "p100": 37.609
+        },
+        "pct_river_cells_where_width_lt_cellsize": 100.0,
+        "cell_A_over_P_m": 22.5
+      },
+      "150m": {
+        "n_cells": 13034,
+        "within_cell_relief_m": {
+          "p50": 8.843,
+          "p75": 37.363,
+          "p90": 65.135,
+          "p95": 78.802,
+          "p99": 98.151,
+          "p100": 147.066
+        },
+        "within_cell_relief_mean_m": 22.069,
+        "within_cell_std_m": {
+          "p50": 2.462,
+          "p75": 10.482,
+          "p90": 18.384,
+          "p95": 22.211,
+          "p99": 28.764,
+          "p100": 41.355
+        },
+        "pct_cells_with_river": 7.94,
+        "river_cell_max_mapped_width_m": {
+          "p50": 8.618,
+          "p75": 16.6,
+          "p90": 34.586,
+          "p95": 36.883,
+          "p99": 37.488,
+          "p100": 37.608
+        },
+        "pct_river_cells_where_width_lt_cellsize": 100.0,
+        "cell_A_over_P_m": 37.5
+      },
+      "210m": {
+        "n_cells": 6652,
+        "within_cell_relief_m": {
+          "p50": 13.546,
+          "p75": 56.695,
+          "p90": 92.415,
+          "p95": 108.827,
+          "p99": 133.606,
+          "p100": 189.673
+        },
+        "within_cell_relief_mean_m": 32.096,
+        "within_cell_std_m": {
+          "p50": 3.498,
+          "p75": 14.808,
+          "p90": 24.93,
+          "p95": 29.697,
+          "p99": 36.9,
+          "p100": 47.912
+        },
+        "pct_cells_with_river": 11.3,
+        "river_cell_max_mapped_width_m": {
+          "p50": 9.042,
+          "p75": 18.646,
+          "p90": 34.784,
+          "p95": 36.953,
+          "p99": 37.54,
+          "p100": 37.609
+        },
+        "pct_river_cells_where_width_lt_cellsize": 100.0,
+        "cell_A_over_P_m": 52.5
+      }
+    }
+  },
+  "caseB": {
+    "case": "caseB",
+    "outlet_flat": 4348277,
+    "outlet_row": 1635,
+    "outlet_col": 812,
+    "outlet_x_utm43n": 350655.0,
+    "outlet_y_utm43n": 2049105.0,
+    "outlet_lon": 73.585107,
+    "outlet_lat": 18.52724,
+    "area_km2": 293.916,
+    "n_cells_30m": 326573,
+    "area_km2_published_uaa_raster": 293.916,
+    "drains_to_cell_flat": 4348278,
+    "connected_components_4": 1,
+    "connected_components_8": 1,
+    "max_flow_path_steps_probe": 199,
+    "max_d8_level_in_basin": 1326,
+    "river_length_km": 128.82,
+    "river_cells": 4294,
+    "river_density_km_per_km2": 0.438,
+    "river_width_m": {
+      "p0": 3.2008,
+      "p5": 3.5086,
+      "p25": 4.6396,
+      "p50": 7.743,
+      "p75": 16.9877,
+      "p90": 28.2764,
+      "p95": 35.8483,
+      "p99": 37.3982,
+      "p100": 37.6466
+    },
+    "river_width_mean_m": 12.131,
+    "river_pct_width_ge_30m": 7.89,
+    "river_pct_width_ge_90m": 0.0,
+    "bankfull_depth_m": {
+      "p0": 0.1435,
+      "p5": 0.1541,
+      "p25": 0.1917,
+      "p50": 0.2858,
+      "p75": 0.5276,
+      "p90": 0.7852,
+      "p95": 0.9449,
+      "p99": 0.9766,
+      "p100": 0.9816
+    },
+    "bankfull_depth_mean_m": 0.3857,
+    "urban_pct": 25.86,
+    "urban_km2": 75.99,
+    "floodplain_pct": 1.92,
+    "floodplain_km2": 5.64,
+    "waterbody_pct": 11.84,
+    "waterbody_km2": 34.805,
+    "waterbodies": [
+      {
+        "waterbody_id": 15668,
+        "waterbody_type": "reservoir",
+        "dem_water_level_m": 606.0,
+        "full_area_km2": 34.826,
+        "area_in_case_km2": 34.805
+      }
+    ],
+    "elev_min_m": 559.13,
+    "elev_max_m": 1198.16,
+    "relief_m": 639.03,
+    "elev_pct": {
+      "p0": 559.1323,
+      "p5": 598.2038,
+      "p25": 622.6028,
+      "p50": 678.7269,
+      "p75": 758.8958,
+      "p90": 874.856,
+      "p95": 946.0451,
+      "p99": 1051.7489,
+      "p100": 1198.1589
+    },
+    "elev_at_outlet_m": 560.38,
+    "dem_jump_30m_D4_m": {
+      "p0": 0.0,
+      "p5": 0.01,
+      "p25": 0.5649,
+      "p50": 2.5619,
+      "p75": 6.3168,
+      "p90": 11.7724,
+      "p95": 15.7389,
+      "p99": 23.8334,
+      "p100": 67.201
+    },
+    "dem_jump_30m_D4_mean_m": 4.454,
+    "dem_jump_coarse_m": {
+      "30m": {
+        "p0": 0.0,
+        "p5": 0.01,
+        "p25": 0.5649,
+        "p50": 2.5619,
+        "p75": 6.3168,
+        "p90": 11.7724,
+        "p95": 15.7389,
+        "p99": 23.8334,
+        "p100": 67.201
+      },
+      "90m": {
+        "p0": 0.0,
+        "p5": 0.0222,
+        "p25": 1.7846,
+        "p50": 7.2475,
+        "p75": 17.1881,
+        "p90": 32.0741,
+        "p95": 42.8021,
+        "p99": 63.1677,
+        "p100": 112.7329
+      },
+      "150m": {
+        "p0": 0.0,
+        "p5": 0.0568,
+        "p25": 3.0021,
+        "p50": 11.5711,
+        "p75": 26.8956,
+        "p90": 48.8666,
+        "p95": 64.7991,
+        "p99": 93.1285,
+        "p100": 151.8195
+      },
+      "210m": {
+        "p0": 0.0,
+        "p5": 0.1199,
+        "p25": 4.2577,
+        "p50": 15.4388,
+        "p75": 35.0951,
+        "p90": 62.5305,
+        "p95": 83.2061,
+        "p99": 116.7654,
+        "p100": 176.7824
+      }
+    },
+    "dem_jump_coarse_max_m": {
+      "30m": 67.2,
+      "90m": 112.73,
+      "150m": 151.82,
+      "210m": 176.78
+    },
+    "inside_valid_domain_pct": 97.908,
+    "clip_window_rowcol": [
+      1108,
+      2028,
+      0,
+      841
+    ],
+    "clip_shape": [
+      921,
+      842
+    ],
+    "clip_bounds_utm43n": [
+      326280.0,
+      2037300.0,
+      351540.0,
+      2064930.0
+    ],
+    "polygon_area_km2": 293.9157,
+    "polygon_n_parts": 1,
+    "polygon_n_holes": 2,
+    "files": {
+      "domain_geojson": "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB_domain.geojson",
+      "outlet_geojson": "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB_outlet.geojson",
+      "rasters": [
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_catchment_mask.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_d8_flow_direction.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_d8_river_bed_elevation_m.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_d8_river_depth_m.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_d8_river_mask_2km2.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_d8_river_width_m.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_d8_upstream_area_km2.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_dem_catchment_only_m.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_dem_hydraulic_conditioned_m.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_floodplain_mask.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_impervious_esa_pct.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_lulc_esa.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_soil.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_urban_mask.tif",
+        "/Users/mngomes/Documents/GitHub/HydroBathyDEM/examples/pune_catchment/data/pune_caseB/caseB_waterbody_id.tif"
+      ]
+    },
+    "verification": {
+      "d8_closure_downstream_ok": true,
+      "d8_closure_upstream_ok": true,
+      "d8_acyclic_ok": true,
+      "outlet_on_d8_river_mask": true,
+      "outlet_area_km2": 293.916,
+      "downstream_receiver_area_km2": 325.036,
+      "comp4_sizes_cells": [
+        326573
+      ],
+      "comp8_count": 1,
+      "diagonal_only_cells": 0,
+      "interior_holes_count": 2,
+      "interior_hole_cells": [
+        1,
+        1
+      ],
+      "interior_hole_km2": 0.0018,
+      "fdir_valid_pct": 100.0,
+      "dem_valid_pct": 100.0,
+      "outside_pune_full_valid_domain_km2": 6.148,
+      "outside_pune_full_valid_domain_max_dist_m": 300.0
+    },
+    "subgrid_relevance": {
+      "90m": {
+        "n_cells": 36285,
+        "within_cell_relief_m": {
+          "p50": 12.707,
+          "p75": 25.363,
+          "p90": 41.886,
+          "p95": 52.072,
+          "p99": 70.803,
+          "p100": 106.184
+        },
+        "within_cell_relief_mean_m": 17.522,
+        "within_cell_std_m": {
+          "p50": 4.141,
+          "p75": 8.205,
+          "p90": 13.502,
+          "p95": 16.718,
+          "p99": 22.659,
+          "p100": 37.544
+        },
+        "pct_cells_with_river": 5.24,
+        "river_cell_max_mapped_width_m": {
+          "p50": 8.051,
+          "p75": 16.984,
+          "p90": 28.244,
+          "p95": 35.81,
+          "p99": 37.383,
+          "p100": 37.647
+        },
+        "pct_river_cells_where_width_lt_cellsize": 100.0,
+        "cell_A_over_P_m": 22.5
+      },
+      "150m": {
+        "n_cells": 13076,
+        "within_cell_relief_m": {
+          "p50": 25.36,
+          "p75": 49.224,
+          "p90": 80.2,
+          "p95": 96.47,
+          "p99": 124.376,
+          "p100": 182.625
+        },
+        "within_cell_relief_mean_m": 33.941,
+        "within_cell_std_m": {
+          "p50": 7.168,
+          "p75": 13.882,
+          "p90": 22.496,
+          "p95": 27.312,
+          "p99": 35.681,
+          "p100": 52.849
+        },
+        "pct_cells_with_river": 8.96,
+        "river_cell_max_mapped_width_m": {
+          "p50": 8.064,
+          "p75": 16.998,
+          "p90": 28.246,
+          "p95": 35.794,
+          "p99": 37.372,
+          "p100": 37.647
+        },
+        "pct_river_cells_where_width_lt_cellsize": 100.0,
+        "cell_A_over_P_m": 37.5
+      },
+      "210m": {
+        "n_cells": 6669,
+        "within_cell_relief_m": {
+          "p50": 38.127,
+          "p75": 72.233,
+          "p90": 113.454,
+          "p95": 135.761,
+          "p99": 166.26,
+          "p100": 250.829
+        },
+        "within_cell_relief_mean_m": 49.199,
+        "within_cell_std_m": {
+          "p50": 10.064,
+          "p75": 19.225,
+          "p90": 30.576,
+          "p95": 36.982,
+          "p99": 46.629,
+          "p100": 67.085
+        },
+        "pct_cells_with_river": 12.64,
+        "river_cell_max_mapped_width_m": {
+          "p50": 8.17,
+          "p75": 16.999,
+          "p90": 28.187,
+          "p95": 35.777,
+          "p99": 37.388,
+          "p100": 37.646
+        },
+        "pct_river_cells_where_width_lt_cellsize": 100.0,
+        "cell_A_over_P_m": 52.5
+      }
+    }
+  },
+  "_provenance": {
+    "grid": "EPSG:32643, 30 m, origin (326280, 2098170), 2482 x 2659 -- identical for every source raster",
+    "delineation": "receiver_from_d8_direction(D8_flow_direction.tif) -> Kahn topological levels -> vectorised upstream-cell accumulation; cross-checked against D8_upstream_area_km2.tif (max abs diff 1.22e-4 km2 over 3.93e6 cells, r=1-5e-15). Cases are the MAXIMAL sub-basins whose own area is 150-300 km2 and whose immediate D8 receiver exceeds 300 km2 (guarantees non-nested candidates). Only 5 such sub-basins exist in the 3444 km2 Pune domain.",
+    "urban_definition": "ESA impervious raster (values 0/100) == 100, dilated by a 300 m Euclidean distance buffer. Reproduces 1993 km2 domain-wide vs the 2083 km2 quoted in the brief (4.3% low) -- ASSUMPTION: the brief used a slightly different buffer kernel (e.g. 10-cell chamfer / vector buffer). Not re-derived.",
+    "floodplain_definition": "floodplain_refinement_candidate_mask.tif from pune_mesh_feature_candidates_d8_2km2 (120.23 km2 domain-wide, matches the 119.5 km2 floodplain_refinement vector layer).",
+    "waterbody_definition": "mesh_feature_candidates.gpkg layer waterbody_refinement, 6 polygons, 118.66 km2 rasterised (118.83 km2 vector).",
+    "coarse_jump_method": "DEM block-mean aggregated by factor f (blocks needing >=50% of their cells inside the catchment), then D4 neighbour |dz| between valid blocks. Proxy for mesh cell-to-cell bed jumps at 30/90/150/210 m."
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "cells": 238,
+  "cell_m": 60.0,
+  "dem_m": 5.0,
+  "channel_m": 20.0,
+  "LX": 1000.0,
+  "LY": 820.0,
+  "chan_slope": 0.02,
+  "plane_slope": 0.05,
+  "ap_min": 10.0
+}

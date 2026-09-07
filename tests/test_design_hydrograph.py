@@ -1,10 +1,12 @@
 import numpy as np
 
 from dem_processing.design_hydrograph import (
+    DesignHydrographConfig,
     _fill_missing_cn_from_nearest,
     _upstream_composite_cn,
     kirpich_tc_minutes,
     receiver_from_d4_direction,
+    receiver_from_d8_direction,
     scs_runoff_depth_mm,
 )
 
@@ -54,3 +56,19 @@ def test_kirpich_has_an_explicit_headwater_floor() -> None:
 def test_hydrobathy_d4_codes_have_the_expected_receivers() -> None:
     direction = np.array([[2, 3], [1, 4]], dtype=float)
     assert receiver_from_d4_direction(direction).tolist() == [[1, 3], [0, 2]]
+
+
+def test_hydrobathy_d8_codes_have_the_expected_receivers() -> None:
+    direction = np.array([[4, 5, 6], [3, 0, 7], [2, 1, 8]], dtype=float)
+    receiver = receiver_from_d8_direction(direction)
+    assert np.all(receiver[direction > 0] == 4)
+    assert receiver[1, 1] == -1
+
+
+def test_design_hydrograph_reads_grouped_d8_routing() -> None:
+    config = DesignHydrographConfig.from_mapping({
+        "inputs": {"dem": "d.tif", "cn": "c.tif", "river_mask": "r.tif", "out_dir": "o"},
+        "routing": {"routing_scheme": "d8"},
+        "idf": {"k": 1, "a": 1, "b": 1, "c": 1},
+    })
+    assert config.routing_scheme == "d8"

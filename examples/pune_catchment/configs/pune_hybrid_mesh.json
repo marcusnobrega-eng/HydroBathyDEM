@@ -1,0 +1,39 @@
+{
+  "mesh_mode": "voronoi_fv",
+  "inputs": {
+    "dem": "examples/pune_catchment/outputs/hydrobathy_20km2_from_raw_bedprofile/dem/DEM_hydraulic_conditioned.tif",
+    "out_dir": "examples/pune_catchment/outputs/hybrid_mesh_jittered_rural120_urban45",
+    "domain_vector": "/Users/mngomes/Library/CloudStorage/GoogleDrive-mngomes@stanford.edu/My Drive/GoogleDriveEP/My Drive/Pune/Catchment_Shapefile.shp",
+    "impervious": "/Users/mngomes/Library/CloudStorage/GoogleDrive-mngomes@stanford.edu/My Drive/GoogleDriveEP/My Drive/Pune/imp.tif",
+    "river_mask": "examples/pune_catchment/outputs/hydrobathy_20km2_from_raw_bedprofile/d4/D4_idx_facc.tif",
+    "river_direction": "examples/pune_catchment/outputs/hydrobathy_20km2_from_raw_bedprofile/d4/D4_flow_direction.tif",
+    "river_width": "examples/pune_catchment/outputs/hydrobathy_20km2_from_raw_bedprofile/d4/D4_Wshed_Properties_River_Width_m.tif",
+    "river_depth": "examples/pune_catchment/outputs/hydrobathy_20km2_from_raw_bedprofile/d4/D4_Wshed_Properties_River_Depth_m.tif",
+    "river_bank_height": "examples/pune_catchment/outputs/hydrobathy_20km2_from_raw_bedprofile/d4/D4_H_abg_m.tif"
+  },
+  "resolution": {
+    "background_width_m": 120,
+    "urban_width_m": 45,
+    "floodplain_cross_width_m": 45,
+    "floodplain_along_width_m": 90,
+    "minimum_cell_width_m": 30,
+    "maximum_adjacent_size_ratio": 2
+  },
+  "rivers": {
+    "source": "hydrobathydem_d4",
+    "initiation_upstream_area_km2": 20,
+    "hand_threshold_m": 10,
+    "unresolved_policy": "neal_subgrid"
+  },
+  "urban": {
+    "impervious_threshold_percent": 1,
+    "population_threshold_per_km2": 1000,
+    "buffer_m": 300
+  },
+  "quality": {
+    "minimum_face_length_factor": 0.25,
+    "minimum_center_distance_factor": 0.5,
+    "quality_repair_max_iterations": 0
+  },
+  "max_seed_count": 1100000
+}

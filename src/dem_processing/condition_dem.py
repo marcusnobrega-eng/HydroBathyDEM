@@ -163,10 +163,12 @@ except Exception:
 
 try:
     from .config import explicit_cli_flags, load_config_file
+    from .hydraulic_geometry import estimate_power_law_geometry
     from .paths import PROJECT_ROOT, ensure_output_layout, themed_output_path
     from .qa import build_qa_scorecard, write_run_manifest
 except ImportError:  # Allows direct execution from the source directory.
     from config import explicit_cli_flags, load_config_file
+    from hydraulic_geometry import estimate_power_law_geometry
     from paths import PROJECT_ROOT, ensure_output_layout, themed_output_path
     from qa import build_qa_scorecard, write_run_manifest
 
@@ -2387,12 +2389,17 @@ def automatic_d4_hydraulic_channel_carving(
     print(f"[INFO] auto river cells = {n_river} ({100*n_river/max(n_valid,1):.4f}% of valid DEM)")
     print(f"[INFO] D4 network derived from conditioned DEM: {routing_dem}")
 
-    B_power = np.zeros_like(fac_area, dtype="float32")
-    H_power = np.zeros_like(fac_area, dtype="float32")
-
     pos = river_mask & np.isfinite(fac_area) & (fac_area > 0)
-    B_power[pos] = cfg.beta_1 * np.power(fac_area[pos], cfg.beta_2)
-    H_power[pos] = cfg.alfa_1 * np.power(fac_area[pos], cfg.alfa_2)
+    B_power, H_power = estimate_power_law_geometry(
+        fac_area,
+        pos,
+        width_coefficient=cfg.beta_1,
+        width_exponent=cfg.beta_2,
+        depth_coefficient=cfg.alfa_1,
+        depth_exponent=cfg.alfa_2,
+    )
+    B_power = B_power.astype("float32")
+    H_power = H_power.astype("float32")
 
     B = B_power.copy()
     H = H_power.copy()

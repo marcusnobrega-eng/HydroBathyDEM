@@ -1,0 +1,14 @@
+{
+  "dx": 20.0,
+  "nrow": 81,
+  "ncol": 50,
+  "area_m2": 1620000.0,
+  "equilibrium_m3_s": 4.86,
+  "chan_rows": [
+    40
+  ],
+  "rain_mm_h": 10.8,
+  "rain_s": 5400.0,
+  "n_plane": 0.015,
+  "n_chan": 0.15
+}

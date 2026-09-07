@@ -11,6 +11,7 @@ __pycache__/
 .venv/
 venv/
 env/
+scratch/
 *.egg-info/
 build/
 dist/
@@ -40,6 +41,14 @@ Outputs/
 /tmp/
 examples/**/outputs/
 examples/pune_catchment/data/pune_corrected_30m/manifest.json
+examples/pune_catchment/data/pune_subcatchment_cases_overview.png
+
+# Reproducible example build products and local array caches. Example source,
+# configuration, and small documentation assets remain eligible for tracking.
+examples/**/*.nc
+examples/**/*.npy
+examples/**/*.npz
+examples/**/*.pkl
 
 # Downloaded/processed Lin et al. 2020 data artifacts
 Data/Lin2020_bankfull_width/raw/
@@ -64,6 +73,8 @@ Data/FABDEM_tiles/
 *.tgz
 *.tmp
 tmp_*
+*.prof
+*.trace
 
 # Tracked lightweight documentation and mini-case assets.
 # Keep these exceptions at the end because gitignore uses the last match.

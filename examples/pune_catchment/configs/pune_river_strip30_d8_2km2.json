@@ -1,0 +1,55 @@
+{
+  "mesh_mode": "voronoi_fv",
+  "inputs": {
+    "dem": "examples/pune_catchment/outputs/hydrobathy_20km2_corrected_dem/dem/DEM_hydraulic_conditioned.tif",
+    "out_dir": "examples/pune_catchment/outputs/pune_river_strip30_d8_2km2",
+    "domain_vector": "examples/pune_catchment/data/pune_full_valid_domain.geojson",
+    "diagnostic_window": "examples/pune_catchment/data/pune_mesh_connected_floodplain_window.geojson",
+    "diagnostic_windows": "examples/pune_catchment/data/pune_floodplain_orientation_windows.geojson",
+    "impervious": "examples/pune_catchment/data/pune_corrected_30m/pune_impervious_from_esa_lulc_30m.tif",
+    "river_mask": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_river_mask_2km2.tif",
+    "river_direction": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_flow_direction.tif",
+    "river_width": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_river_width_m.tif",
+    "river_depth": "examples/pune_catchment/outputs/pune_rivers_2km2_d4_d8/rasters/D8_river_depth_m.tif",
+    "floodplain_mask": "examples/pune_catchment/outputs/pune_mesh_feature_candidates_d8_2km2/floodplain_refinement_candidate_mask.tif",
+    "waterbody_vector": "examples/pune_catchment/outputs/pune_mesh_feature_candidates_d8_2km2/mesh_feature_candidates.gpkg",
+    "waterbody_layer": "waterbody_refinement"
+  },
+  "resolution": {
+    "background_width_m": 200,
+    "urban_width_m": 90,
+    "river_along_river_cell_length_m": 30,
+    "river_cross_river_target_width_m": 30,
+    "floodplain_target_width_m": 90,
+    "floodplain_align_to_flow": false,
+    "waterbody_target_width_m": 200,
+    "minimum_cell_width_m": 30,
+    "maximum_adjacent_size_ratio": 2
+  },
+  "rivers": {
+    "source": "hydrobathydem_d8",
+    "initiation_upstream_area_km2": 2,
+    "centerline_smoothing_iterations": 2,
+    "width_smoothing_window_cells": 5,
+    "unresolved_policy": "none",
+    "cell_style": "structured_strip"
+  },
+  "floodplain": {
+    "enabled": true
+  },
+  "urban": {
+    "impervious_threshold_percent": 1,
+    "population_threshold_per_km2": 1000,
+    "buffer_m": 300
+  },
+  "quality": {
+    "minimum_face_length_factor": 0.25,
+    "minimum_center_distance_factor": 0.5,
+    "quality_repair_max_iterations": 40,
+    "write_diagnostics": false
+  },
+  "max_seed_count": 1400000,
+  "enforce_river_boundaries": false,
+  "enforce_feature_boundaries": false,
+  "enforce_waterbody_boundaries": true
+}

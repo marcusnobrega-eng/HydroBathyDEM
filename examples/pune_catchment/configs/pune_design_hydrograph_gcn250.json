@@ -1,0 +1,27 @@
+{
+  "inputs": {
+    "dem": "examples/pune_catchment/outputs/hydrobathy_20km2_corrected_dem/dem/DEM_hydraulic_conditioned.tif",
+    "river_mask": "examples/pune_catchment/outputs/hydrobathy_20km2_corrected_dem/d4/D4_idx_facc.tif",
+    "river_direction": "examples/pune_catchment/outputs/hydrobathy_20km2_corrected_dem/d4/D4_flow_direction.tif",
+    "contributing_area": "examples/pune_catchment/outputs/hydrobathy_20km2_corrected_dem/d4/D4_Wshed_Properties_fac_area_km2.tif",
+    "cn": "examples/pune_catchment/data/global_cn/GCN250_ARCII.tif",
+    "out_dir": "examples/pune_catchment/outputs/pune_design_hydrograph_gcn250"
+  },
+  "idf": {
+    "k": 3559.7,
+    "a": 0.182,
+    "b": 21.662,
+    "c": 0.911,
+    "return_period_yr": 100
+  },
+  "scs": {
+    "initial_abstraction_ratio": 0.2,
+    "storm_duration_ratio_to_tc": 0.133,
+    "minimum_tc_min": 5,
+    "minimum_storm_duration_min": 5
+  },
+  "hut": {
+    "lag_ratio": 0.6,
+    "minimum_cn_coverage_fraction": 0.9
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "cells": 100,
+  "cell_m": 60.0,
+  "dem_m": 5.0,
+  "LX": 600.0,
+  "LY": 600.0,
+  "basin_r": 75.0,
+  "basin_d": 3.0,
+  "slope": 0.003,
+  "rim_cells": 12,
+  "ap_min": 15.0
+}

@@ -26,7 +26,7 @@
       },
       "rivers": {
         "source": "hydrobathydem_d4",
-        "river_preferred_cells_across": 3,
+        "cell_style": "structured_strip",
         "unresolved_policy": "none"
       },
       "urban": {
