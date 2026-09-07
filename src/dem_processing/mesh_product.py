@@ -7,7 +7,7 @@ import hashlib
 import json
 import subprocess
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -471,7 +471,7 @@ def write_product_manifest(
             })
     manifest = {
         "schema_version": MESH_PRODUCT_SCHEMA,
-        "generated_utc": datetime.now(UTC).isoformat(),
+        "generated_utc": datetime.now(timezone.utc).isoformat(),
         "generator": _source_provenance(),
         "configuration_sha256": configuration_sha256,
         "files": records,
