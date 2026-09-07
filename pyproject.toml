@@ -57,6 +57,7 @@ Issues = "https://github.com/marcusnobrega-eng/HydroBathyDEM/issues"
 [project.optional-dependencies]
 dev = [
     "build",
+    "pytest>=8",
 ]
 fabdem = [
     "fabdem>=0.2.0",
