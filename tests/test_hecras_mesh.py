@@ -7,7 +7,6 @@ one of them fails the design is wrong, not the mesh.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from shapely import MultiPoint, intersection, unary_union, voronoi_polygons
 from shapely.geometry import LineString, Point, box
 

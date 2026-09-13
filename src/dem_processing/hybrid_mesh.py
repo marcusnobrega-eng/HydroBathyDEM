@@ -27,10 +27,28 @@ from rasterio.transform import xy
 from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 from shapely import (
-    MultiPoint, STRtree, box, centroid, contains, covers, difference, get_coordinates,
-    get_num_coordinates, get_x, get_y, intersection, is_valid,
-    linestrings as shapely_linestrings, make_valid, point_on_surface, prepare,
-    points as shapely_points, shortest_line, unary_union, union, voronoi_polygons,
+    MultiPoint,
+    STRtree,
+    centroid,
+    contains,
+    covers,
+    difference,
+    get_coordinates,
+    get_exterior_ring,
+    get_num_coordinates,
+    get_x,
+    get_y,
+    intersection,
+    is_valid,
+    linestrings as shapely_linestrings,
+    make_valid,
+    point_on_surface,
+    prepare,
+    points as shapely_points,
+    shortest_line,
+    unary_union,
+    union,
+    voronoi_polygons,
 )
 from shapely.geometry import LineString, Point, Polygon, shape
 from shapely.ops import split
@@ -124,6 +142,7 @@ class HybridMeshConfig:
     minimum_center_distance_factor: float = 0.5
     quality_repair_max_iterations: int = 6
     write_diagnostics: bool = True
+    write_intermediate_diagnostics: bool = True
     # Diagnostic option: write the globally conforming Step 5 Voronoi only.
     # It is deliberately not a production mesh because hard feature-boundary
     # splitting and all topology/quality gates have not yet been applied.
@@ -138,7 +157,9 @@ class HybridMeshConfig:
         values = dict(values)
         mesh_mode = values.pop("mesh_mode", "voronoi_fv")
         if mesh_mode != "voronoi_fv":
-            raise ValueError(f"Hybrid mesh generator requires mesh_mode='voronoi_fv', got {mesh_mode!r}.")
+            raise ValueError(
+                f"Hybrid mesh generator requires mesh_mode='voronoi_fv', got {mesh_mode!r}."
+            )
         grouped = {
             "inputs": {},
             "resolution": {},
@@ -154,7 +175,9 @@ class HybridMeshConfig:
                     raise ValueError(f"{group} must be a configuration object.")
                 grouped[group].update(group_values)
         if "enabled" in grouped["floodplain"]:
-            grouped["floodplain"]["floodplain_enabled"] = grouped["floodplain"].pop("enabled")
+            grouped["floodplain"]["floodplain_enabled"] = grouped["floodplain"].pop(
+                "enabled"
+            )
         values = {
             **grouped["inputs"],
             **grouped["resolution"],
@@ -196,17 +219,46 @@ class HybridMeshConfig:
         values = {aliases.get(key, key): value for key, value in values.items()}
         values.pop("preferred_cells_across", None)
         values.pop("river_preferred_cells_across", None)
-        for key in ("dem", "out_dir", "impervious", "population", "river_mask", "river_direction", "river_width", "river_depth", "river_bank_height", "floodplain_mask", "floodplain_vector", "floodplain_direction", "floodplain_axis", "waterbody_vector", "river_network", "domain_vector", "diagnostic_window", "diagnostic_windows"):
+        for key in (
+            "dem",
+            "out_dir",
+            "impervious",
+            "population",
+            "river_mask",
+            "river_direction",
+            "river_width",
+            "river_depth",
+            "river_bank_height",
+            "floodplain_mask",
+            "floodplain_vector",
+            "floodplain_direction",
+            "floodplain_axis",
+            "waterbody_vector",
+            "river_network",
+            "domain_vector",
+            "diagnostic_window",
+            "diagnostic_windows",
+        ):
             if values.get(key) is not None:
                 values[key] = Path(values[key])
         config = cls(**values)
         if config.unresolved_policy not in {"neal_subgrid", "none"}:
-            raise ValueError("rivers.unresolved_policy must be 'neal_subgrid' or 'none'.")
-        if config.river_source not in {"derive_d4", "hydrobathydem_d4", "hydrobathydem_d8"}:
+            raise ValueError(
+                "rivers.unresolved_policy must be 'neal_subgrid' or 'none'."
+            )
+        if config.river_source not in {
+            "derive_d4",
+            "hydrobathydem_d4",
+            "hydrobathydem_d8",
+        }:
             raise ValueError(
                 "rivers.source must be 'derive_d4', 'hydrobathydem_d4', or 'hydrobathydem_d8'."
             )
-        if config.river_cell_style not in {"graded_rows", "structured_strip", "voronoi"}:
+        if config.river_cell_style not in {
+            "graded_rows",
+            "structured_strip",
+            "voronoi",
+        }:
             raise ValueError(
                 "rivers.cell_style must be 'graded_rows', 'structured_strip', or 'voronoi'."
             )
@@ -215,20 +267,30 @@ class HybridMeshConfig:
         if config.minimum_upstream_area_km2 <= 0:
             raise ValueError("rivers.initiation_upstream_area_km2 must be positive.")
         if config.river_centerline_smoothing_iterations < 0:
-            raise ValueError("rivers.centerline_smoothing_iterations must be non-negative.")
+            raise ValueError(
+                "rivers.centerline_smoothing_iterations must be non-negative."
+            )
         if config.river_width_smoothing_window_cells < 1:
             raise ValueError("rivers.width_smoothing_window_cells must be at least 1.")
-        if config.minimum_face_length_factor <= 0 or config.minimum_center_distance_factor <= 0:
+        if (
+            config.minimum_face_length_factor <= 0
+            or config.minimum_center_distance_factor <= 0
+        ):
             raise ValueError("quality factors must be positive.")
-        if min(
-            config.river_along_river_cell_length_m,
-            config.river_cross_river_target_width_m,
-            config.floodplain_target_width_m,
-            config.floodplain_along_river_cell_length_m,
-            config.floodplain_cross_river_target_width_m,
-            config.waterbody_target_width_m,
-        ) <= 0:
-            raise ValueError("all river, floodplain, and waterbody targets must be positive.")
+        if (
+            min(
+                config.river_along_river_cell_length_m,
+                config.river_cross_river_target_width_m,
+                config.floodplain_target_width_m,
+                config.floodplain_along_river_cell_length_m,
+                config.floodplain_cross_river_target_width_m,
+                config.waterbody_target_width_m,
+            )
+            <= 0
+        ):
+            raise ValueError(
+                "all river, floodplain, and waterbody targets must be positive."
+            )
         return config
 
 
@@ -260,7 +322,9 @@ class ComputationPointSet:
         }
         for name, value in values.items():
             if value.ndim != 1 or len(value) != count:
-                raise ValueError(f"Computation-point {name} must contain {count} values.")
+                raise ValueError(
+                    f"Computation-point {name} must contain {count} values."
+                )
         if len(np.unique(values["point_id"])) != count:
             raise ValueError("Computation-point IDs must be unique.")
         if not np.isfinite(coordinates).all():
@@ -270,7 +334,9 @@ class ComputationPointSet:
             object.__setattr__(self, name, value)
 
 
-def _aligned(path: Path | None, reference: rasterio.DatasetReader, default: float = 0.0) -> np.ndarray:
+def _aligned(
+    path: Path | None, reference: rasterio.DatasetReader, default: float = 0.0
+) -> np.ndarray:
     if path is None:
         return np.full(reference.shape, default, dtype=np.float64)
     with rasterio.open(path) as source:
@@ -281,7 +347,9 @@ def _aligned(path: Path | None, reference: rasterio.DatasetReader, default: floa
         return source.read(1, masked=True).astype(np.float64).filled(np.nan)
 
 
-def connected_hand(dem: np.ndarray, receiver: np.ndarray, river: np.ndarray) -> np.ndarray:
+def connected_hand(
+    dem: np.ndarray, receiver: np.ndarray, river: np.ndarray
+) -> np.ndarray:
     """Return HAND only for cells whose D4 path reaches the supplied river mask."""
     flat_dem, flat_receiver, flat_river = dem.ravel(), receiver.ravel(), river.ravel()
     hand = np.full(flat_dem.size, np.nan, dtype=np.float64)
@@ -292,12 +360,16 @@ def connected_hand(dem: np.ndarray, receiver: np.ndarray, river: np.ndarray) -> 
     for item in valid[np.argsort(flat_dem[valid])]:
         downstream = int(flat_receiver[item])
         if downstream >= 0 and np.isfinite(hand[downstream]):
-            hand[item] = max(flat_dem[item] - (flat_dem[downstream] - hand[downstream]), 0.0)
+            hand[item] = max(
+                flat_dem[item] - (flat_dem[downstream] - hand[downstream]), 0.0
+            )
     return hand.reshape(dem.shape)
 
 
 def connected_hand_with_reach(
-    dem: np.ndarray, receiver: np.ndarray, river: np.ndarray,
+    dem: np.ndarray,
+    receiver: np.ndarray,
+    river: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return HAND and the first mapped-river cell reached by every D4 path.
 
@@ -346,8 +418,14 @@ def receiver_from_d8_direction(direction: np.ndarray) -> np.ndarray:
     receiver = np.full(direction.shape, -1, dtype=np.int64)
     index = np.arange(rows * cols, dtype=np.int64).reshape(rows, cols)
     links = {
-        1: (-1, 0), 2: (-1, 1), 3: (0, 1), 4: (1, 1),
-        5: (1, 0), 6: (1, -1), 7: (0, -1), 8: (-1, -1),
+        1: (-1, 0),
+        2: (-1, 1),
+        3: (0, 1),
+        4: (1, 1),
+        5: (1, 0),
+        6: (1, -1),
+        7: (0, -1),
+        8: (-1, -1),
     }
     for code, (drow, dcol) in links.items():
         row_source = slice(max(0, -drow), min(rows, rows - drow))
@@ -355,7 +433,9 @@ def receiver_from_d8_direction(direction: np.ndarray) -> np.ndarray:
         row_target = slice(max(0, drow), min(rows, rows + drow))
         col_target = slice(max(0, dcol), min(cols, cols + dcol))
         selected = direction[row_source, col_source] == code
-        receiver[row_source, col_source][selected] = index[row_target, col_target][selected]
+        receiver[row_source, col_source][selected] = index[row_target, col_target][
+            selected
+        ]
     return receiver
 
 
@@ -375,7 +455,9 @@ def _needs_reach_labels(config: HybridMeshConfig) -> bool:
     )
 
 
-def _smooth_size_field(target: np.ndarray, valid: np.ndarray, ratio: float) -> np.ndarray:
+def _smooth_size_field(
+    target: np.ndarray, valid: np.ndarray, ratio: float
+) -> np.ndarray:
     """Propagate fine targets outward until every D4 neighbour obeys the ratio cap."""
     result = target.copy()
     for _ in range(result.size):
@@ -387,14 +469,23 @@ def _smooth_size_field(target: np.ndarray, valid: np.ndarray, ratio: float) -> n
             index_a = [slice(None)] * 2
             index_b = [slice(None)] * 2
             index_a[axis], index_b[axis] = slice(0, -1), slice(1, None)
-            result[tuple(index_a)] = np.where(valid[tuple(index_a)], a_new, result[tuple(index_a)])
-            result[tuple(index_b)] = np.where(valid[tuple(index_b)], b_new, result[tuple(index_b)])
+            result[tuple(index_a)] = np.where(
+                valid[tuple(index_a)], a_new, result[tuple(index_a)]
+            )
+            result[tuple(index_b)] = np.where(
+                valid[tuple(index_b)], b_new, result[tuple(index_b)]
+            )
         if np.allclose(previous, result):
             break
     return result
 
 
-def _lattice(bounds: tuple[float, float, float, float], spacing: float, mask: np.ndarray, transform: Any) -> np.ndarray:
+def _lattice(
+    bounds: tuple[float, float, float, float],
+    spacing: float,
+    mask: np.ndarray,
+    transform: Any,
+) -> np.ndarray:
     xmin, ymin, xmax, ymax = bounds
     xs = np.arange(xmin + spacing / 2.0, xmax, spacing)
     ys = np.arange(ymin + spacing / 2.0, ymax, spacing)
@@ -407,16 +498,26 @@ def _lattice(bounds: tuple[float, float, float, float], spacing: float, mask: np
     return np.column_stack((xx.ravel()[keep], yy.ravel()[keep]))
 
 
-def _ribbon_reservation(river: np.ndarray, transform: Any, half_width_m: float) -> np.ndarray:
+def _ribbon_reservation(
+    river: np.ndarray, transform: Any, half_width_m: float
+) -> np.ndarray:
     """Reserve a buffer so a river ribbon replaces, rather than collides with, lattice seeds."""
-    return distance_transform_edt(~river, sampling=(abs(transform.e), abs(transform.a))) <= half_width_m
+    return (
+        distance_transform_edt(~river, sampling=(abs(transform.e), abs(transform.a)))
+        <= half_width_m
+    )
 
 
-def _drop_near(points: np.ndarray, blockers: np.ndarray, minimum_distance_m: float) -> np.ndarray:
+def _drop_near(
+    points: np.ndarray, blockers: np.ndarray, minimum_distance_m: float
+) -> np.ndarray:
     """Keep candidate seeds far enough from already-prioritized seeds."""
     if not len(points) or not len(blockers):
         return points
-    keep = cKDTree(blockers).query(points, distance_upper_bound=minimum_distance_m)[0] >= minimum_distance_m
+    keep = (
+        cKDTree(blockers).query(points, distance_upper_bound=minimum_distance_m)[0]
+        >= minimum_distance_m
+    )
     return points[keep]
 
 
@@ -428,16 +529,30 @@ def _minimum_separated(points: np.ndarray, minimum_distance_m: float) -> np.ndar
     accepted: list[np.ndarray] = []
     for point in points:
         key = tuple(np.floor(point / minimum_distance_m).astype(int))
-        nearby = [other for row in range(key[0] - 1, key[0] + 2) for col in range(key[1] - 1, key[1] + 2) for other in bins.get((row, col), [])]
-        if not nearby or np.all(np.hypot(np.asarray(nearby)[:, 0] - point[0], np.asarray(nearby)[:, 1] - point[1]) >= minimum_distance_m):
+        nearby = [
+            other
+            for row in range(key[0] - 1, key[0] + 2)
+            for col in range(key[1] - 1, key[1] + 2)
+            for other in bins.get((row, col), [])
+        ]
+        if not nearby or np.all(
+            np.hypot(
+                np.asarray(nearby)[:, 0] - point[0], np.asarray(nearby)[:, 1] - point[1]
+            )
+            >= minimum_distance_m
+        ):
             accepted.append(point)
             bins.setdefault(key, []).append(point)
     return np.asarray(accepted, dtype=np.float64)
 
 
 def _flow_aligned_ribbon_seeds(
-    mask: np.ndarray, receiver: np.ndarray, transform: Any, cross_width_m: np.ndarray,
-    along_width_m: np.ndarray, minimum_distance_m: float,
+    mask: np.ndarray,
+    receiver: np.ndarray,
+    transform: Any,
+    cross_width_m: np.ndarray,
+    along_width_m: np.ndarray,
+    minimum_distance_m: float,
 ) -> np.ndarray:
     """Place a protected, flow-aligned seed ribbon over a directed feature mask.
 
@@ -451,12 +566,13 @@ def _flow_aligned_ribbon_seeds(
     ncols, nitems = mask.shape[1], mask.size
     centres: list[tuple[float, float, float, float, float]] = []
     for row, col in zip(rows, cols, strict=True):
-        start = row * ncols + col
         downstream = int(receiver[row, col])
         if downstream < 0:
             continue
         terminal = downstream
-        for _ in range(2):  # three D4 links smooth staircase directions without changing topology
+        for _ in range(
+            2
+        ):  # three D4 links smooth staircase directions without changing topology
             candidate = int(receiver.flat[terminal])
             if candidate < 0 or candidate >= nitems or not mask.flat[candidate]:
                 break
@@ -467,10 +583,16 @@ def _flow_aligned_ribbon_seeds(
         dx, dy = x1 - x0, y1 - y0
         length = np.hypot(dx, dy)
         if length > 0:
-            centres.append((
-                x0, y0, dx / length, dy / length,
-                float(cross_width_m[row, col]), float(along_width_m[row, col]),
-            ))
+            centres.append(
+                (
+                    x0,
+                    y0,
+                    dx / length,
+                    dy / length,
+                    float(cross_width_m[row, col]),
+                    float(along_width_m[row, col]),
+                )
+            )
     if not centres:
         return np.empty((0, 2), dtype=np.float64)
 
@@ -488,21 +610,33 @@ def _flow_aligned_ribbon_seeds(
         # Three rows make intentionally anisotropic floodplain cells.  The
         # cross-stream spacing, not the longitudinal spacing, is the local
         # hydraulic width relevant to the surface CFL condition.
-        rows_of_seeds.extend((
-            (x0 - cross * nx, y0 - cross * ny),
-            (x0, y0),
-            (x0 + cross * nx, y0 + cross * ny),
-        ))
-    return _minimum_separated(np.asarray(rows_of_seeds, dtype=np.float64), minimum_distance_m)
+        rows_of_seeds.extend(
+            (
+                (x0 - cross * nx, y0 - cross * ny),
+                (x0, y0),
+                (x0 + cross * nx, y0 + cross * ny),
+            )
+        )
+    return _minimum_separated(
+        np.asarray(rows_of_seeds, dtype=np.float64), minimum_distance_m
+    )
 
 
 def _river_seeds(
-    river: np.ndarray, receiver: np.ndarray, transform: Any, cross_width_m: np.ndarray, minimum_distance_m: float,
+    river: np.ndarray,
+    receiver: np.ndarray,
+    transform: Any,
+    cross_width_m: np.ndarray,
+    minimum_distance_m: float,
 ) -> np.ndarray:
     """Backward-compatible river-core wrapper for the protected ribbon builder."""
     return _flow_aligned_ribbon_seeds(
-        river, receiver, transform, cross_width_m,
-        np.maximum(2.0 * cross_width_m, minimum_distance_m), minimum_distance_m,
+        river,
+        receiver,
+        transform,
+        cross_width_m,
+        np.maximum(2.0 * cross_width_m, minimum_distance_m),
+        minimum_distance_m,
     )
 
 
@@ -516,7 +650,11 @@ def exclusive_floodplain_geometry(candidate, river_geometry, waterbody_geometry)
     """
     if candidate is None or candidate.is_empty:
         return Polygon()
-    blockers = [item for item in (river_geometry, waterbody_geometry) if item is not None and not item.is_empty]
+    blockers = [
+        item
+        for item in (river_geometry, waterbody_geometry)
+        if item is not None and not item.is_empty
+    ]
     if not blockers:
         return candidate.buffer(0)
     return candidate.difference(unary_union(blockers)).buffer(0)
@@ -526,7 +664,9 @@ def _mask_geometry(mask: np.ndarray, transform: Any) -> Polygon:
     """Polygonise a raster feature without changing its selected cells."""
     pieces = [
         Polygon(geometry["coordinates"][0])
-        for geometry, value in shapes(mask.astype("uint8"), mask=mask, transform=transform)
+        for geometry, value in shapes(
+            mask.astype("uint8"), mask=mask, transform=transform
+        )
         if value
     ]
     geometry = unary_union(pieces) if pieces else Polygon()
@@ -534,7 +674,10 @@ def _mask_geometry(mask: np.ndarray, transform: Any) -> Polygon:
 
 
 def _vector_feature_geometry(
-    path: Path | None, crs: Any, domain, layer: str | None = None,
+    path: Path | None,
+    crs: Any,
+    domain,
+    layer: str | None = None,
 ):
     if path is None:
         return Polygon()
@@ -612,24 +755,46 @@ def _river_segment_records(
     paths, leftover = _river_reach_paths(river, receiver)
     records: list[tuple[int, LineString, float, tuple[float, float]]] = []
     for path in paths:
-        centres = np.asarray([xy(transform, *divmod(item, ncols), offset="center") for item in path], dtype=np.float64)
+        centres = np.asarray(
+            [xy(transform, *divmod(item, ncols), offset="center") for item in path],
+            dtype=np.float64,
+        )
         smoothed = _chaikin_smoothed(centres, centerline_smoothing_iterations)
         source_widths = _smooth_width_values(
-            np.asarray([
-                width[row, col] if np.isfinite(width[row, col]) else np.nan
-                for row, col in (divmod(item, ncols) for item in path[:-1])
-            ], dtype=np.float64),
+            np.asarray(
+                [
+                    width[row, col] if np.isfinite(width[row, col]) else np.nan
+                    for row, col in (divmod(item, ncols) for item in path[:-1])
+                ],
+                dtype=np.float64,
+            ),
             width_smoothing_window_cells,
         )
         n_segments = max(1, len(smoothed) - 1)
-        for segment_id, (left, right) in enumerate(zip(smoothed[:-1], smoothed[1:], strict=True)):
-            width_index = min(len(source_widths) - 1, int(segment_id * len(source_widths) / n_segments))
+        for segment_id, (left, right) in enumerate(
+            zip(smoothed[:-1], smoothed[1:], strict=True)
+        ):
+            width_index = min(
+                len(source_widths) - 1,
+                int(segment_id * len(source_widths) / n_segments),
+            )
             source_index = path[width_index]
-            mapped_width = float(source_widths[width_index]) if np.isfinite(source_widths[width_index]) else 0.0
+            mapped_width = (
+                float(source_widths[width_index])
+                if np.isfinite(source_widths[width_index])
+                else 0.0
+            )
             dx, dy = right - left
             length = float(np.hypot(dx, dy))
             if mapped_width > 0 and length > 0:
-                records.append((source_index, LineString((left, right)), mapped_width, (dx / length, dy / length)))
+                records.append(
+                    (
+                        source_index,
+                        LineString((left, right)),
+                        mapped_width,
+                        (dx / length, dy / length),
+                    )
+                )
 
     # A simple one-link reach at a cut domain edge can be missed above.  Add it
     # unchanged rather than silently dropping a mapped river.
@@ -641,11 +806,20 @@ def _river_segment_records(
         length = float(np.hypot(x1 - x0, y1 - y0))
         mapped_width = float(width[row, col]) if np.isfinite(width[row, col]) else 0.0
         if mapped_width > 0 and length > 0:
-            records.append((start, LineString(((x0, y0), (x1, y1))), mapped_width, ((x1 - x0) / length, (y1 - y0) / length)))
+            records.append(
+                (
+                    start,
+                    LineString(((x0, y0), (x1, y1))),
+                    mapped_width,
+                    ((x1 - x0) / length, (y1 - y0) / length),
+                )
+            )
     return records
 
 
-def _river_reach_paths(river: np.ndarray, receiver: np.ndarray) -> tuple[list[list[int]], list[tuple[int, int]]]:
+def _river_reach_paths(
+    river: np.ndarray, receiver: np.ndarray
+) -> tuple[list[list[int]], list[tuple[int, int]]]:
     """Split a directed river raster into junction-to-junction index paths.
 
     A reach ends wherever the network branches or joins, so every path is a
@@ -717,12 +891,15 @@ def _river_reach_records(
     records: list[tuple[int, LineString, np.ndarray]] = []
     for reach_id, path in enumerate(paths):
         centres = np.asarray(
-            [xy(transform, *divmod(item, ncols), offset="center") for item in path], dtype=np.float64,
+            [xy(transform, *divmod(item, ncols), offset="center") for item in path],
+            dtype=np.float64,
         )
         widths = _smooth_width_values(
             np.asarray(
-                [width[row, col] if np.isfinite(width[row, col]) else np.nan
-                 for row, col in (divmod(item, ncols) for item in path)],
+                [
+                    width[row, col] if np.isfinite(width[row, col]) else np.nan
+                    for row, col in (divmod(item, ncols) for item in path)
+                ],
                 dtype=np.float64,
             ),
             width_smoothing_window_cells,
@@ -736,7 +913,9 @@ def _river_reach_records(
         line = LineString(smoothed)
         if line.length <= 0:
             continue
-        smoothed_widths = np.interp(_normalised_arc_position(smoothed), source_position, widths)
+        smoothed_widths = np.interp(
+            _normalised_arc_position(smoothed), source_position, widths
+        )
         records.append((reach_id, line, smoothed_widths))
     return records
 
@@ -761,7 +940,10 @@ def _station_normals(stations: np.ndarray) -> np.ndarray:
 
 
 def _fold_limited_half_width(
-    stations: np.ndarray, normals: np.ndarray, half_width: np.ndarray, safety: float = 0.5,
+    stations: np.ndarray,
+    normals: np.ndarray,
+    half_width: np.ndarray,
+    safety: float = 0.5,
 ) -> np.ndarray:
     """Cap the offset where two consecutive cross-sections would cross.
 
@@ -830,7 +1012,8 @@ def build_river_strip_cells(
     raw_width = np.asarray(widths, dtype=np.float64).ravel()
     raw_width = raw_width[np.isfinite(raw_width)]
     raw_width = np.maximum(
-        raw_width if raw_width.size else np.full(1, minimum_width_m), minimum_width_m,
+        raw_width if raw_width.size else np.full(1, minimum_width_m),
+        minimum_width_m,
     )
     band_count = np.maximum(1, np.rint(raw_width / cross_target_m))
     band_floor = float((raw_width / band_count).min())
@@ -839,11 +1022,19 @@ def build_river_strip_cells(
         # 8% over the analytic minimum: the chord between two stations is a
         # little shorter than the arc on a curved reach, and without the margin
         # every bend lands back under the floor.
-        required_along = 1.08 * minimum_cell_scale_m * band_floor / (band_floor - minimum_cell_scale_m)
+        required_along = (
+            1.08
+            * minimum_cell_scale_m
+            * band_floor
+            / (band_floor - minimum_cell_scale_m)
+        )
     n_along = max(1, int(length // max(along_m, required_along)))
     station_distance = np.linspace(0.0, length, n_along + 1)
     stations = np.asarray(
-        [[point.x, point.y] for point in (centerline.interpolate(item) for item in station_distance)],
+        [
+            [point.x, point.y]
+            for point in (centerline.interpolate(item) for item in station_distance)
+        ],
         dtype=np.float64,
     )
     # ``widths`` normally arrives one value per centreline vertex.  Accept any
@@ -856,11 +1047,14 @@ def build_river_strip_cells(
     if values.size == 1:
         values = np.repeat(values, 2)
     source_position = (
-        _normalised_arc_position(coordinates) if values.size == len(coordinates)
+        _normalised_arc_position(coordinates)
+        if values.size == len(coordinates)
         else np.linspace(0.0, 1.0, values.size)
     )
     station_width = np.interp(station_distance / length, source_position, values)
-    station_width = np.maximum(np.nan_to_num(station_width, nan=minimum_width_m), minimum_width_m)
+    station_width = np.maximum(
+        np.nan_to_num(station_width, nan=minimum_width_m), minimum_width_m
+    )
     normals = _station_normals(stations)
     half_width = _fold_limited_half_width(stations, normals, 0.5 * station_width)
     left_bank = stations + half_width[:, None] * normals
@@ -878,27 +1072,35 @@ def build_river_strip_cells(
             corners = [
                 stations[index] + lower * half_width[index] * normals[index],
                 stations[index] + upper * half_width[index] * normals[index],
-                stations[index + 1] + upper * half_width[index + 1] * normals[index + 1],
-                stations[index + 1] + lower * half_width[index + 1] * normals[index + 1],
+                stations[index + 1]
+                + upper * half_width[index + 1] * normals[index + 1],
+                stations[index + 1]
+                + lower * half_width[index + 1] * normals[index + 1],
             ]
             cell = Polygon(corners)
             if not cell.is_valid or cell.area <= 0:
                 continue
             band_cells.setdefault(band, []).append(cell)
-            band_attributes.setdefault(band, []).append({
-                "reach_id": int(reach_id),
-                "station_start_m": float(station_distance[index]),
-                "station_end_m": float(station_distance[index + 1]),
-                "cross_band": int(band),
-                "cross_band_count": int(bands),
-                "channel_width_m": float(half_width[index] + half_width[index + 1]),
-                "mapped_width_m": float(0.5 * (station_width[index] + station_width[index + 1])),
-            })
+            band_attributes.setdefault(band, []).append(
+                {
+                    "reach_id": int(reach_id),
+                    "station_start_m": float(station_distance[index]),
+                    "station_end_m": float(station_distance[index + 1]),
+                    "cross_band": int(band),
+                    "cross_band_count": int(bands),
+                    "channel_width_m": float(half_width[index] + half_width[index + 1]),
+                    "mapped_width_m": float(
+                        0.5 * (station_width[index] + station_width[index + 1])
+                    ),
+                }
+            )
     for band in sorted(band_cells):
         emitted: list[int] = []
         pending = None
         pending_attribute = None
-        for cell, attribute in zip(band_cells[band], band_attributes[band], strict=True):
+        for cell, attribute in zip(
+            band_cells[band], band_attributes[band], strict=True
+        ):
             if pending is None:
                 pending, pending_attribute = cell, dict(attribute)
             else:
@@ -912,7 +1114,8 @@ def build_river_strip_cells(
                     pending = union
                     pending_attribute["station_end_m"] = attribute["station_end_m"]
                     pending_attribute["channel_width_m"] = max(
-                        pending_attribute["channel_width_m"], attribute["channel_width_m"],
+                        pending_attribute["channel_width_m"],
+                        attribute["channel_width_m"],
                     )
             if 2.0 * pending.area / max(pending.length, 1e-12) >= minimum_cell_scale_m:
                 emitted.append(len(cells))
@@ -926,11 +1129,14 @@ def build_river_strip_cells(
         union = unary_union((cells[emitted[-1]], pending)) if emitted else None
         if union is not None and union.geom_type == "Polygon":
             cells[emitted[-1]] = union
-            attributes[emitted[-1]]["station_end_m"] = pending_attribute["station_end_m"]
+            attributes[emitted[-1]]["station_end_m"] = pending_attribute[
+                "station_end_m"
+            ]
         else:
             cells.append(pending)
             attributes.append(pending_attribute)
     return cells, attributes, LineString(left_bank), LineString(right_bank)
+
 
 def _line_parts(geometry) -> list[LineString]:
     if geometry is None or geometry.is_empty:
@@ -967,9 +1173,13 @@ def _vector_river_records(
         raise ValueError(f"Mapped river network is empty: {network_path}")
     network = network.to_crs(crs)
     if width_field not in network.columns and (
-        fallback_width_m is None or not np.isfinite(fallback_width_m) or fallback_width_m <= 0
+        fallback_width_m is None
+        or not np.isfinite(fallback_width_m)
+        or fallback_width_m <= 0
     ):
-        raise ValueError(f"Mapped river network {network_path} lacks width field {width_field!r}.")
+        raise ValueError(
+            f"Mapped river network {network_path} lacks width field {width_field!r}."
+        )
     records: list[tuple[int, LineString, float, tuple[float, float]]] = []
     for fid, item in network.iterrows():
         geometry = item.geometry.intersection(domain)
@@ -977,11 +1187,25 @@ def _vector_river_records(
             if line.length <= 1.0:
                 continue
             coordinates = list(line.coords)
-            start_row, start_col = rasterio.transform.rowcol(transform, coordinates[0][0], coordinates[0][1])
-            end_row, end_col = rasterio.transform.rowcol(transform, coordinates[-1][0], coordinates[-1][1])
-            start_elevation = dem[np.clip(start_row, 0, dem.shape[0] - 1), np.clip(start_col, 0, dem.shape[1] - 1)]
-            end_elevation = dem[np.clip(end_row, 0, dem.shape[0] - 1), np.clip(end_col, 0, dem.shape[1] - 1)]
-            if np.isfinite(start_elevation) and np.isfinite(end_elevation) and end_elevation > start_elevation:
+            start_row, start_col = rasterio.transform.rowcol(
+                transform, coordinates[0][0], coordinates[0][1]
+            )
+            end_row, end_col = rasterio.transform.rowcol(
+                transform, coordinates[-1][0], coordinates[-1][1]
+            )
+            start_elevation = dem[
+                np.clip(start_row, 0, dem.shape[0] - 1),
+                np.clip(start_col, 0, dem.shape[1] - 1),
+            ]
+            end_elevation = dem[
+                np.clip(end_row, 0, dem.shape[0] - 1),
+                np.clip(end_col, 0, dem.shape[1] - 1),
+            ]
+            if (
+                np.isfinite(start_elevation)
+                and np.isfinite(end_elevation)
+                and end_elevation > start_elevation
+            ):
                 line = LineString(coordinates[::-1])
             width = (
                 float(item[width_field])
@@ -997,14 +1221,20 @@ def _vector_river_records(
             vector = end - start
             length = float(np.hypot(*vector))
             if length > 0:
-                records.append((int(fid), line, width, (vector[0] / length, vector[1] / length)))
+                records.append(
+                    (int(fid), line, width, (vector[0] / length, vector[1] / length))
+                )
     if not records:
-        raise ValueError(f"No mapped river reaches overlap the mesh domain: {network_path}")
+        raise ValueError(
+            f"No mapped river reaches overlap the mesh domain: {network_path}"
+        )
     return records
 
 
 def _vector_reach_orientations(
-    reach: np.ndarray, transform: Any, records: list[tuple[int, LineString, float, tuple[float, float]]],
+    reach: np.ndarray,
+    transform: Any,
+    records: list[tuple[int, LineString, float, tuple[float, float]]],
 ) -> dict[int, tuple[float, float]]:
     """Map D4 HAND labels to the local tangent of the nearest mapped reach."""
     labels = np.unique(reach[reach >= 0])
@@ -1030,19 +1260,26 @@ def _vector_reach_orientations(
 
 
 def _physical_river_geometry(
-    records: list[tuple[int, LineString, float, tuple[float, float]]], minimum_width_m: float = 0.0,
+    records: list[tuple[int, LineString, float, tuple[float, float]]],
+    minimum_width_m: float = 0.0,
 ):
     """Union mapped river footprints, optionally widened only for mesh hosts."""
     if not records:
         return Polygon()
-    return unary_union([
-        line.buffer(max(width, minimum_width_m) / 2.0, cap_style="flat", join_style="round")
-        for _, line, width, _ in records
-    ])
+    return unary_union(
+        [
+            line.buffer(
+                max(width, minimum_width_m) / 2.0, cap_style="flat", join_style="round"
+            )
+            for _, line, width, _ in records
+        ]
+    )
 
 
 def _river_cross_layout(
-    width: float, cross_target_m: float, minimum_seed_distance_m: float,
+    width: float,
+    cross_target_m: float,
+    minimum_seed_distance_m: float,
 ) -> tuple[np.ndarray, float]:
     if not np.isfinite(width) or width <= 0:
         return np.empty(0, dtype=np.float64), 0.0
@@ -1074,7 +1311,11 @@ def _river_core_seeds(
             centre = line.interpolate((step + 0.5) * line.length / n_along)
             for offset in offsets:
                 candidates.append((centre.x + offset * nx, centre.y + offset * ny))
-    return np.unique(np.asarray(candidates, dtype=np.float64), axis=0) if candidates else np.empty((0, 2), dtype=np.float64)
+    return (
+        np.unique(np.asarray(candidates, dtype=np.float64), axis=0)
+        if candidates
+        else np.empty((0, 2), dtype=np.float64)
+    )
 
 
 def _river_bank_support_seeds(
@@ -1086,18 +1327,30 @@ def _river_bank_support_seeds(
     """Place non-river support sites just outside both physical banks."""
     candidates: list[tuple[float, float]] = []
     for _, line, width, tangent in records:
-        offsets, actual_cross = _river_cross_layout(width, cross_target_m, minimum_seed_distance_m)
+        offsets, actual_cross = _river_cross_layout(
+            width, cross_target_m, minimum_seed_distance_m
+        )
         if not len(offsets):
             continue
         tx, ty = tangent
         nx, ny = -ty, tx
         n_along = max(1, int(np.ceil(line.length / along_m)))
-        support_offset = max(0.5 * width + 0.5 * actual_cross, 0.5 * width + minimum_seed_distance_m)
+        support_offset = max(
+            0.5 * width + 0.5 * actual_cross, 0.5 * width + minimum_seed_distance_m
+        )
         for step in range(n_along):
             centre = line.interpolate((step + 0.5) * line.length / n_along)
-            candidates.append((centre.x - support_offset * nx, centre.y - support_offset * ny))
-            candidates.append((centre.x + support_offset * nx, centre.y + support_offset * ny))
-    return np.unique(np.asarray(candidates, dtype=np.float64), axis=0) if candidates else np.empty((0, 2), dtype=np.float64)
+            candidates.append(
+                (centre.x - support_offset * nx, centre.y - support_offset * ny)
+            )
+            candidates.append(
+                (centre.x + support_offset * nx, centre.y + support_offset * ny)
+            )
+    return (
+        np.unique(np.asarray(candidates, dtype=np.float64), axis=0)
+        if candidates
+        else np.empty((0, 2), dtype=np.float64)
+    )
 
 
 def _feature_lattice_seeds(
@@ -1138,7 +1391,9 @@ def _feature_lattice_seeds(
         stream_bin = np.rint(stream / along_m).astype(np.int64)
         cross_bin = np.rint(cross / cross_m).astype(np.int64)
         best: dict[tuple[int, int], tuple[float, np.ndarray]] = {}
-        for point, s, c, sb, cb in zip(local, stream, cross, stream_bin, cross_bin, strict=True):
+        for point, s, c, sb, cb in zip(
+            local, stream, cross, stream_bin, cross_bin, strict=True
+        ):
             key = (int(sb), int(cb))
             distance = abs(s - sb * along_m) + abs(c - cb * cross_m)
             if key not in best or distance < best[key][0]:
@@ -1147,7 +1402,10 @@ def _feature_lattice_seeds(
     if not selected:
         return np.empty((0, 2), dtype=np.float64)
     candidates = np.unique(np.asarray(selected, dtype=np.float64), axis=0)
-    return np.asarray([point for point in candidates if geometry.covers(Point(point))], dtype=np.float64)
+    return np.asarray(
+        [point for point in candidates if geometry.covers(Point(point))],
+        dtype=np.float64,
+    )
 
 
 def _axis_connector_paths(axis: np.ndarray, receiver: np.ndarray) -> list[list[int]]:
@@ -1189,7 +1447,9 @@ def _axis_connector_paths(axis: np.ndarray, receiver: np.ndarray) -> list[list[i
     return paths
 
 
-def _line_tangent(line: LineString, point: Point, span_m: float) -> tuple[float, float] | None:
+def _line_tangent(
+    line: LineString, point: Point, span_m: float
+) -> tuple[float, float] | None:
     """Centered tangent of a smoothed directed connector line."""
     distance = line.project(point)
     before = line.interpolate(max(0.0, distance - span_m))
@@ -1200,7 +1460,10 @@ def _line_tangent(line: LineString, point: Point, span_m: float) -> tuple[float,
 
 
 def _smoothed_floodplain_connector_tangents(
-    axis: np.ndarray, receiver: np.ndarray, transform: Any, along_cell_length_m: float,
+    axis: np.ndarray,
+    receiver: np.ndarray,
+    transform: Any,
+    along_cell_length_m: float,
 ) -> tuple[np.ndarray, np.ndarray, list[LineString]]:
     """Orient floodplain sites from smooth, directed accumulation connectors.
 
@@ -1241,11 +1504,19 @@ def _smoothed_floodplain_connector_tangents(
     if not valid_axis.any():
         return tangent_x, tangent_y, connector_lines
     _, nearest = distance_transform_edt(~valid_axis, return_indices=True)
-    return tangent_x[nearest[0], nearest[1]], tangent_y[nearest[0], nearest[1]], connector_lines
+    return (
+        tangent_x[nearest[0], nearest[1]],
+        tangent_y[nearest[0], nearest[1]],
+        connector_lines,
+    )
 
 
 def _complete_floodplain_connector_axis(
-    axis: np.ndarray, receiver: np.ndarray, floodplain: np.ndarray, transform: Any, cross_m: float,
+    axis: np.ndarray,
+    receiver: np.ndarray,
+    floodplain: np.ndarray,
+    transform: Any,
+    cross_m: float,
 ) -> np.ndarray:
     """Extend the supplied high-accumulation axes until they cover each floodplain.
 
@@ -1274,7 +1545,11 @@ def _complete_floodplain_connector_axis(
     rows, cols = floodplain.shape
     padded = np.pad(floodplain, ((0, (-rows) % stride), (0, (-cols) % stride)))
     block_rows, block_cols = padded.shape[0] // stride, padded.shape[1] // stride
-    blocks = padded.reshape(block_rows, stride, block_cols, stride).transpose(0, 2, 1, 3).reshape(block_rows, block_cols, -1)
+    blocks = (
+        padded.reshape(block_rows, stride, block_cols, stride)
+        .transpose(0, 2, 1, 3)
+        .reshape(block_rows, block_cols, -1)
+    )
     has_cell = blocks.any(axis=2)
     block_row, block_col = np.where(has_cell)
     chosen = blocks.argmax(axis=2)[block_row, block_col]
@@ -1294,8 +1569,13 @@ def _complete_floodplain_connector_axis(
 
 
 def _floodplain_connector_ribbon_seeds(
-    connector_axes: list[LineString], floodplain_geometry, floodplain_mask: np.ndarray, transform: Any,
-    along_m: float, cross_m: float, minimum_distance_m: float,
+    connector_axes: list[LineString],
+    floodplain_geometry,
+    floodplain_mask: np.ndarray,
+    transform: Any,
+    along_m: float,
+    cross_m: float,
+    minimum_distance_m: float,
 ) -> np.ndarray:
     """Fill floodplains with streamwise/cross-stream lattices grown from connectors.
 
@@ -1321,48 +1601,77 @@ def _floodplain_connector_ribbon_seeds(
             for sign in (-1.0, 1.0):
                 offset = cross_m
                 while True:
-                    candidate = Point(point.x + sign * offset * nx, point.y + sign * offset * ny)
+                    candidate = Point(
+                        point.x + sign * offset * nx, point.y + sign * offset * ny
+                    )
                     if not floodplain_geometry.covers(candidate):
                         break
                     candidates.append((candidate.x, candidate.y))
                     offset += cross_m
-    primary = _minimum_separated(np.unique(np.asarray(candidates), axis=0), minimum_distance_m) if candidates else np.empty((0, 2), dtype=np.float64)
+    primary = (
+        _minimum_separated(
+            np.unique(np.asarray(candidates), axis=0), minimum_distance_m
+        )
+        if candidates
+        else np.empty((0, 2), dtype=np.float64)
+    )
     rows, cols = np.where(floodplain_mask)
     if not len(rows):
         return primary
     if not len(primary):
-        raise ValueError("A non-empty floodplain requires receiver-connected ribbon seeds.")
+        raise ValueError(
+            "A non-empty floodplain requires receiver-connected ribbon seeds."
+        )
     xs, ys = xy(transform, rows, cols, offset="center")
     floodplain_points = np.column_stack((xs, ys)).astype(np.float64)
     if np.any(cKDTree(primary).query(floodplain_points)[0] > 2.0 * cross_m):
-        raise ValueError("Floodplain connector ribbons left an unoriented coverage gap.")
+        raise ValueError(
+            "Floodplain connector ribbons left an unoriented coverage gap."
+        )
     return primary
 
 
-def _boundary_support_seeds(boundaries, spacing_m: float, offset_m: float, domain) -> np.ndarray:
+def _boundary_support_seeds(
+    boundaries, spacing_m: float, offset_m: float, domain
+) -> np.ndarray:
     """Add paired sites next to constrained feature boundaries to avoid slivers."""
     result: list[tuple[float, float]] = []
-    lines = [boundaries] if isinstance(boundaries, LineString) else list(getattr(boundaries, "geoms", []))
+    lines = (
+        [boundaries]
+        if isinstance(boundaries, LineString)
+        else list(getattr(boundaries, "geoms", []))
+    )
     for line in lines:
         if not isinstance(line, LineString) or line.length <= 0:
             continue
         for distance in np.arange(0.0, line.length + 0.5 * spacing_m, spacing_m):
             point = line.interpolate(min(distance, line.length))
             before = line.interpolate(max(0.0, distance - min(1.0, 0.2 * spacing_m)))
-            after = line.interpolate(min(line.length, distance + min(1.0, 0.2 * spacing_m)))
+            after = line.interpolate(
+                min(line.length, distance + min(1.0, 0.2 * spacing_m))
+            )
             dx, dy = after.x - before.x, after.y - before.y
             length = float(np.hypot(dx, dy))
             if length <= 0:
                 continue
             nx, ny = -dy / length, dx / length
             for sign in (-1.0, 1.0):
-                candidate = (point.x + sign * offset_m * nx, point.y + sign * offset_m * ny)
+                candidate = (
+                    point.x + sign * offset_m * nx,
+                    point.y + sign * offset_m * ny,
+                )
                 if domain.covers(Point(candidate)):
                     result.append(candidate)
-    return np.unique(np.asarray(result, dtype=np.float64), axis=0) if result else np.empty((0, 2), dtype=np.float64)
+    return (
+        np.unique(np.asarray(result, dtype=np.float64), axis=0)
+        if result
+        else np.empty((0, 2), dtype=np.float64)
+    )
 
 
-def _split_by_feature_boundaries(polygons: list[Polygon], boundaries, minimum_piece_area_m2: float) -> list[Polygon]:
+def _split_by_feature_boundaries(
+    polygons: list[Polygon], boundaries, minimum_piece_area_m2: float
+) -> list[Polygon]:
     """Apply the same hard lines to every Voronoi cell, preserving conformity."""
     lines = [line for line in _line_parts(boundaries) if line.length > 0]
     if not lines:
@@ -1372,10 +1681,14 @@ def _split_by_feature_boundaries(polygons: list[Polygon], boundaries, minimum_pi
     # tested every polygon against every boundary segment.
     # A boundary line that merely touches a polygon edge cannot create a new
     # finite-volume face.  Restrict the expensive split work to real crossings.
-    pairs = STRtree(polygons).query(np.asarray(lines, dtype=object), predicate="crosses")
+    pairs = STRtree(polygons).query(
+        np.asarray(lines, dtype=object), predicate="crosses"
+    )
     cuts_by_polygon: dict[int, list[LineString]] = {}
     for line_index, polygon_index in zip(pairs[0], pairs[1], strict=True):
-        cuts_by_polygon.setdefault(int(polygon_index), []).append(lines[int(line_index)])
+        cuts_by_polygon.setdefault(int(polygon_index), []).append(
+            lines[int(line_index)]
+        )
     result: list[Polygon] = []
     for index, polygon in enumerate(polygons):
         cuts = cuts_by_polygon.get(index)
@@ -1390,10 +1703,17 @@ def _split_by_feature_boundaries(polygons: list[Polygon], boundaries, minimum_pi
                     updated.append(piece)
                     continue
                 try:
-                    split_pieces = [part for part in split(piece, line).geoms if part.geom_type == "Polygon"]
+                    split_pieces = [
+                        part
+                        for part in split(piece, line).geoms
+                        if part.geom_type == "Polygon"
+                    ]
                 except Exception:
                     split_pieces = [piece]
-                if len(split_pieces) > 1 and min(part.area for part in split_pieces) >= minimum_piece_area_m2:
+                if (
+                    len(split_pieces) > 1
+                    and min(part.area for part in split_pieces) >= minimum_piece_area_m2
+                ):
                     updated.extend(split_pieces)
                 else:
                     updated.append(piece)
@@ -1402,19 +1722,28 @@ def _split_by_feature_boundaries(polygons: list[Polygon], boundaries, minimum_pi
     return result
 
 
-def _clip_cells_to_feature_polygon(polygons: list[Polygon], feature, minimum_piece_area_m2: float) -> list[Polygon]:
+def _clip_cells_to_feature_polygon(
+    polygons: list[Polygon], feature, minimum_piece_area_m2: float
+) -> list[Polygon]:
     """Make a polygon feature a real cell boundary without line-by-line splitting."""
     if feature is None or feature.is_empty:
         return list(polygons)
     feature = feature.buffer(0)
-    candidates = set(STRtree(polygons).query(feature.boundary, predicate="intersects").tolist())
+    candidates = set(
+        STRtree(polygons).query(feature.boundary, predicate="intersects").tolist()
+    )
     result: list[Polygon] = []
     for index, polygon in enumerate(polygons):
         if index not in candidates:
             result.append(polygon)
             continue
-        pieces = _polygon_parts(polygon.intersection(feature)) + _polygon_parts(polygon.difference(feature))
-        if len(pieces) > 1 and min(piece.area for piece in pieces) >= minimum_piece_area_m2:
+        pieces = _polygon_parts(polygon.intersection(feature)) + _polygon_parts(
+            polygon.difference(feature)
+        )
+        if (
+            len(pieces) > 1
+            and min(piece.area for piece in pieces) >= minimum_piece_area_m2
+        ):
             result.extend(pieces)
         else:
             result.append(polygon)
@@ -1422,7 +1751,9 @@ def _clip_cells_to_feature_polygon(polygons: list[Polygon], feature, minimum_pie
 
 
 def graded_row_plan(
-    cross_target_m: float, maximum_target_m: float, size_ratio: float,
+    cross_target_m: float,
+    maximum_target_m: float,
+    size_ratio: float,
 ) -> list[float]:
     """Cell widths stepping up from the channel to the background, HEC-RAS style.
 
@@ -1475,26 +1806,37 @@ def river_graded_seeds(
             continue
         values = np.asarray(widths, dtype=np.float64).ravel()
         values = values[np.isfinite(values)]
-        values = np.maximum(values if values.size else np.full(1, minimum_width_m), minimum_width_m)
+        values = np.maximum(
+            values if values.size else np.full(1, minimum_width_m), minimum_width_m
+        )
         bands = np.maximum(1, np.rint(values / cross_target_m))
         band_floor = float((values / bands).min())
         step = along_m
         if minimum_cell_scale_m > 0 and band_floor > minimum_cell_scale_m:
-            step = max(along_m, 1.08 * minimum_cell_scale_m * band_floor / (band_floor - minimum_cell_scale_m))
+            step = max(
+                along_m,
+                1.08
+                * minimum_cell_scale_m
+                * band_floor
+                / (band_floor - minimum_cell_scale_m),
+            )
         n = max(1, int(line.length // step))
         distance = np.linspace(0.0, line.length, n + 1)
         stations = np.asarray(
-            [[p.x, p.y] for p in (line.interpolate(item) for item in distance)], dtype=np.float64,
+            [[p.x, p.y] for p in (line.interpolate(item) for item in distance)],
+            dtype=np.float64,
         )
         if len(stations) < 2:
             continue
         coordinates = np.asarray(line.coords, dtype=np.float64)
         source = (
-            _normalised_arc_position(coordinates) if values.size == len(coordinates)
+            _normalised_arc_position(coordinates)
+            if values.size == len(coordinates)
             else np.linspace(0.0, 1.0, values.size)
         )
         station_width = np.maximum(
-            np.interp(distance / line.length, source, values), minimum_width_m,
+            np.interp(distance / line.length, source, values),
+            minimum_width_m,
         )
         normals = _station_normals(stations)
         half = _fold_limited_half_width(stations, normals, 0.5 * station_width)
@@ -1519,21 +1861,30 @@ def river_graded_seeds(
             stride = max(1, int(round(width / max(step, 1e-9))))
             index = np.arange(0, len(stations), stride)
             for sign in (-1.0, 1.0):
-                graded.append(stations[index] + (sign * offset[index])[:, None] * normals[index])
+                graded.append(
+                    stations[index] + (sign * offset[index])[:, None] * normals[index]
+                )
             previous = width
         reach_extent = max(reach_extent, float(offset.max()))
+
     def _clean(parts: list[np.ndarray]) -> np.ndarray:
         if not parts:
             return np.empty((0, 2), dtype=np.float64)
         points = np.unique(np.vstack(parts), axis=0)
         inside = np.asarray([domain.covers(Point(item)) for item in points], dtype=bool)
         points = points[inside]
-        if waterbody_geometry is not None and not waterbody_geometry.is_empty and len(points):
+        if (
+            waterbody_geometry is not None
+            and not waterbody_geometry.is_empty
+            and len(points)
+        ):
             keep = ~np.asarray(
-                [waterbody_geometry.covers(Point(item)) for item in points], dtype=bool,
+                [waterbody_geometry.covers(Point(item)) for item in points],
+                dtype=bool,
             )
             points = points[keep]
         return points
+
     return _clean(channel), _clean(graded), reach_extent
 
 
@@ -1569,7 +1920,12 @@ def build_river_strip_mesh(
     for priority, record_index in enumerate(order):
         reach_id, line, widths = reach_records[record_index]
         reach_cells, reach_attributes, left, right = build_river_strip_cells(
-            line, widths, along_m, cross_target_m, minimum_width_m, reach_id,
+            line,
+            widths,
+            along_m,
+            cross_target_m,
+            minimum_width_m,
+            reach_id,
             minimum_cell_scale_m,
         )
         for attribute in reach_attributes:
@@ -1586,7 +1942,11 @@ def build_river_strip_mesh(
     # and let the cheap ``covers``/``intersects`` predicates decide which of the
     # few boundary-crossing banks actually need an overlay.
     prepare(domain)
-    blocker = waterbody_geometry if waterbody_geometry is not None and not waterbody_geometry.is_empty else None
+    blocker = (
+        waterbody_geometry
+        if waterbody_geometry is not None and not waterbody_geometry.is_empty
+        else None
+    )
     if blocker is not None:
         prepare(blocker)
     trimmed: list[LineString] = []
@@ -1601,16 +1961,20 @@ def build_river_strip_mesh(
     # Confluence overlap: keep the higher-priority (wider) cell whole and trim
     # the lower-priority one.  Only junction neighbourhoods produce pairs, so
     # this stays a small local operation on a large network.
-    priorities = np.asarray([item["reach_priority"] for item in attributes], dtype=np.int64)
+    priorities = np.asarray(
+        [item["reach_priority"] for item in attributes], dtype=np.int64
+    )
     tree = STRtree(cells)
     cell_objects = np.asarray(cells, dtype=object)
     # ``overlaps`` covers a partial fold; ``contains`` covers the rarer case of
     # one cross-section swallowing another.  Neither fires for cells that only
     # share an edge, so an adjacent well-formed pair is never trimmed.
-    pairs = np.hstack((
-        tree.query(cell_objects, predicate="overlaps"),
-        tree.query(cell_objects, predicate="contains"),
-    ))
+    pairs = np.hstack(
+        (
+            tree.query(cell_objects, predicate="overlaps"),
+            tree.query(cell_objects, predicate="contains"),
+        )
+    )
     trims: dict[int, list[int]] = {}
     for left_index, right_index in zip(pairs[0], pairs[1], strict=True):
         left_index, right_index = int(left_index), int(right_index)
@@ -1618,11 +1982,16 @@ def build_river_strip_mesh(
             continue
         loser, winner = (
             (left_index, right_index)
-            if (priorities[left_index], left_index) > (priorities[right_index], right_index)
+            if (priorities[left_index], left_index)
+            > (priorities[right_index], right_index)
             else (right_index, left_index)
         )
         trims.setdefault(loser, []).append(winner)
-    blocker = waterbody_geometry if waterbody_geometry is not None and not waterbody_geometry.is_empty else None
+    blocker = (
+        waterbody_geometry
+        if waterbody_geometry is not None and not waterbody_geometry.is_empty
+        else None
+    )
     result_cells: list[Polygon] = []
     result_attributes: list[dict[str, Any]] = []
     # A trim can break one cross-section cell into two disjoint pieces.  Only the
@@ -1631,14 +2000,15 @@ def build_river_strip_mesh(
     # the discarded area silently becomes floodplain or surface.
     discarded_area_m2 = 0.0
     for index, cell in enumerate(cells):
-        original_area = cell.area
         if index in trims:
             cell = cell.difference(unary_union([cells[item] for item in trims[index]]))
         if blocker is not None:
             cell = cell.difference(blocker)
         if not cell.is_empty and not domain.covers(cell):
             cell = cell.intersection(domain)
-        parts = [part for part in _polygon_parts(cell) if part.area > minimum_cell_area_m2]
+        parts = [
+            part for part in _polygon_parts(cell) if part.area > minimum_cell_area_m2
+        ]
         if not parts:
             continue
         keep = max(parts, key=lambda item: item.area)
@@ -1648,7 +2018,9 @@ def build_river_strip_mesh(
     return result_cells, result_attributes, banks, discarded_area_m2
 
 
-def _ring_edges(polygons: list[Polygon]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _ring_edges(
+    polygons: list[Polygon],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return per-cell exterior-ring segments as (owner, local position, start, end).
 
     Interior rings are excluded on purpose.  ``_topology`` and the UGRID export
@@ -1657,7 +2029,7 @@ def _ring_edges(polygons: list[Polygon]) -> tuple[np.ndarray, np.ndarray, np.nda
     and ``position`` has to index the exterior ring for the callers that rebuild
     a ring from it.
     """
-    objects = np.asarray([polygon.exterior for polygon in polygons], dtype=object)
+    objects = get_exterior_ring(np.asarray(polygons, dtype=object))
     counts = get_num_coordinates(objects)
     coordinates = get_coordinates(objects)
     if not len(coordinates):
@@ -1673,7 +2045,10 @@ def _ring_edges(polygons: list[Polygon]) -> tuple[np.ndarray, np.ndarray, np.nda
 
 
 def _unpaired_ring_edges(
-    owner: np.ndarray, start_xy: np.ndarray, end_xy: np.ndarray, decimals: int = 4,
+    owner: np.ndarray,
+    start_xy: np.ndarray,
+    end_xy: np.ndarray,
+    decimals: int = 4,
 ) -> np.ndarray:
     """Indices of ring segments that no second cell currently matches."""
     if not len(owner):
@@ -1681,13 +2056,22 @@ def _unpaired_ring_edges(
     swap = (start_xy[:, 0] > end_xy[:, 0]) | (
         (start_xy[:, 0] == end_xy[:, 0]) & (start_xy[:, 1] > end_xy[:, 1])
     )
-    key = np.round(np.column_stack((
-        np.where(swap, end_xy[:, 0], start_xy[:, 0]), np.where(swap, end_xy[:, 1], start_xy[:, 1]),
-        np.where(swap, start_xy[:, 0], end_xy[:, 0]), np.where(swap, start_xy[:, 1], end_xy[:, 1]),
-    )), decimals)
+    key = np.round(
+        np.column_stack(
+            (
+                np.where(swap, end_xy[:, 0], start_xy[:, 0]),
+                np.where(swap, end_xy[:, 1], start_xy[:, 1]),
+                np.where(swap, start_xy[:, 0], end_xy[:, 0]),
+                np.where(swap, start_xy[:, 1], end_xy[:, 1]),
+            )
+        ),
+        decimals,
+    )
     order = np.lexsort((key[:, 3], key[:, 2], key[:, 1], key[:, 0]))
     sorted_key = key[order]
-    group_start = np.r_[0, np.flatnonzero(np.any(sorted_key[1:] != sorted_key[:-1], axis=1)) + 1]
+    group_start = np.r_[
+        0, np.flatnonzero(np.any(sorted_key[1:] != sorted_key[:-1], axis=1)) + 1
+    ]
     group_end = np.r_[group_start[1:], len(sorted_key)]
     single = (group_end - group_start) == 1
     return order[group_start[single]]
@@ -1702,14 +2086,19 @@ def _despiked_ring(ring: list[tuple[float, float]]) -> list[tuple[float, float]]
     itself and no merge can repair it.  Removing the spur tip restores a simple
     ring and changes the cell area by nothing.
     """
-    current = [point for index, point in enumerate(ring) if index == 0 or point != ring[index - 1]]
+    current = [
+        point
+        for index, point in enumerate(ring)
+        if index == 0 or point != ring[index - 1]
+    ]
     if len(current) > 1 and current[0] == current[-1]:
         current.pop()
     while len(current) >= 3:
         count = len(current)
         tip = next(
             (
-                index for index in range(count)
+                index
+                for index in range(count)
                 if current[(index - 1) % count] == current[(index + 1) % count]
             ),
             None,
@@ -1718,7 +2107,9 @@ def _despiked_ring(ring: list[tuple[float, float]]) -> list[tuple[float, float]]
             break
         del current[tip]
         current = [
-            point for index, point in enumerate(current) if index == 0 or point != current[index - 1]
+            point
+            for index, point in enumerate(current)
+            if index == 0 or point != current[index - 1]
         ]
         if len(current) > 1 and current[0] == current[-1]:
             current.pop()
@@ -1726,15 +2117,26 @@ def _despiked_ring(ring: list[tuple[float, float]]) -> list[tuple[float, float]]
 
 
 def _snapped_vertices(
-    polygons: list[Polygon], snap: dict[tuple[float, float], tuple[float, float]],
+    polygons: list[Polygon],
+    snap: dict[tuple[float, float], tuple[float, float]],
 ) -> list[Polygon]:
     """Move a few vertices onto a neighbouring endpoint, removing a short face."""
-    result: list[Polygon] = []
-    for polygon in polygons:
-        ring = [(round(x, 4), round(y, 4)) for x, y in list(polygon.exterior.coords)[:-1]]
-        if not any(vertex in snap for vertex in ring):
-            result.append(polygon)
-            continue
+    if not snap or not polygons:
+        return list(polygons)
+    exteriors = get_exterior_ring(np.asarray(polygons, dtype=object))
+    coordinates, owners = get_coordinates(exteriors, return_index=True)
+    rounded = np.ascontiguousarray(np.round(coordinates, 4))
+    sources = np.ascontiguousarray(np.asarray(list(snap), dtype=np.float64))
+    vertex_dtype = np.dtype([("x", rounded.dtype), ("y", rounded.dtype)])
+    vertex_keys = rounded.view(vertex_dtype).reshape(-1)
+    source_keys = sources.view(vertex_dtype).reshape(-1)
+    affected = np.unique(owners[np.isin(vertex_keys, source_keys)])
+    result = list(polygons)
+    for index in affected:
+        polygon = polygons[int(index)]
+        ring = [
+            (round(x, 4), round(y, 4)) for x, y in list(polygon.exterior.coords)[:-1]
+        ]
         cleaned = _despiked_ring([snap.get(vertex, vertex) for vertex in ring])
         candidate = Polygon(cleaned) if len(cleaned) >= 3 else None
         # GEOS calls a ring that walks out and back along the same line valid and
@@ -1743,16 +2145,21 @@ def _snapped_vertices(
         collapsed = candidate is not None and (
             2.0 * candidate.area / max(candidate.length, 1e-12) < 1e-3
         )
-        result.append(
+        result[int(index)] = (
             polygon
-            if candidate is None or collapsed or not candidate.is_valid or candidate.area <= 0
+            if candidate is None
+            or collapsed
+            or not candidate.is_valid
+            or candidate.area <= 0
             else candidate
         )
     return result
 
 
 def insert_hanging_nodes(
-    polygons: list[Polygon], tolerance: float = 1e-3, minimum_face_length_m: float = 0.0,
+    polygons: list[Polygon],
+    tolerance: float = 1e-3,
+    minimum_face_length_m: float = 0.0,
     max_passes: int = 6,
 ) -> tuple[list[Polygon], int, int]:
     """Make every internal interface a two-owner face, without creating slivers.
@@ -1794,30 +2201,43 @@ def insert_hanging_nodes(
         # along the segment cover the same neighbourhood in work proportional to
         # its length.
         span = np.hypot(
-            segment_end[:, 0] - segment_start[:, 0], segment_end[:, 1] - segment_start[:, 1],
+            segment_end[:, 0] - segment_start[:, 0],
+            segment_end[:, 1] - segment_start[:, 1],
         )
         sample_step = max(4.0 * tolerance, 30.0)
-        samples_per_segment = np.maximum(1, np.ceil(span / sample_step)).astype(np.int64)
-        sample_owner = np.repeat(np.arange(len(unpaired)), samples_per_segment)
-        offset = np.concatenate([
-            (np.arange(count) + 0.5) / count for count in samples_per_segment
-        ]) if len(samples_per_segment) else np.empty(0)
-        sample_points = (
-            segment_start[sample_owner]
-            + offset[:, None] * (segment_end[sample_owner] - segment_start[sample_owner])
+        samples_per_segment = np.maximum(1, np.ceil(span / sample_step)).astype(
+            np.int64
         )
-        radius = 0.5 * span[sample_owner] / samples_per_segment[sample_owner] + tolerance
+        sample_owner = np.repeat(np.arange(len(unpaired)), samples_per_segment)
+        offset = (
+            np.concatenate(
+                [(np.arange(count) + 0.5) / count for count in samples_per_segment]
+            )
+            if len(samples_per_segment)
+            else np.empty(0)
+        )
+        sample_points = segment_start[sample_owner] + offset[:, None] * (
+            segment_end[sample_owner] - segment_start[sample_owner]
+        )
+        radius = (
+            0.5 * span[sample_owner] / samples_per_segment[sample_owner] + tolerance
+        )
         candidates = cKDTree(nodes).query_ball_point(sample_points, radius, workers=-1)
-        counts = np.fromiter((len(item) for item in candidates), dtype=np.int64, count=len(candidates))
+        counts = np.fromiter(
+            (len(item) for item in candidates), dtype=np.int64, count=len(candidates)
+        )
         if not counts.sum():
             break
         segment_index = np.repeat(sample_owner, counts)
         node_index = np.fromiter(
-            (item for group in candidates for item in group), dtype=np.int64, count=int(counts.sum()),
+            (item for group in candidates for item in group),
+            dtype=np.int64,
+            count=int(counts.sum()),
         )
         # One node can fall in two neighbouring balls on the same segment.
         segment_index, node_index = np.unique(
-            np.column_stack((segment_index, node_index)), axis=0,
+            np.column_stack((segment_index, node_index)),
+            axis=0,
         ).T
         a = segment_start[segment_index]
         b = segment_end[segment_index]
@@ -1825,15 +2245,23 @@ def insert_hanging_nodes(
         direction = b - a
         squared = np.einsum("ij,ij->i", direction, direction)
         parameter = np.divide(
-            np.einsum("ij,ij->i", point - a, direction), squared,
-            out=np.zeros(len(point)), where=squared > 0,
+            np.einsum("ij,ij->i", point - a, direction),
+            squared,
+            out=np.zeros(len(point)),
+            where=squared > 0,
         )
         span = np.sqrt(np.maximum(squared, 1e-24))
-        offset = np.abs(
-            (point[:, 0] - a[:, 0]) * direction[:, 1] - (point[:, 1] - a[:, 1]) * direction[:, 0]
-        ) / span
+        offset = (
+            np.abs(
+                (point[:, 0] - a[:, 0]) * direction[:, 1]
+                - (point[:, 1] - a[:, 1]) * direction[:, 0]
+            )
+            / span
+        )
         margin = tolerance / span
-        interior = (parameter > margin) & (parameter < 1.0 - margin) & (offset <= tolerance)
+        interior = (
+            (parameter > margin) & (parameter < 1.0 - margin) & (offset <= tolerance)
+        )
         if not np.any(interior):
             break
         segment_index = segment_index[interior]
@@ -1854,12 +2282,18 @@ def insert_hanging_nodes(
             edge_span = float(span[entries[0][1]])
             edge_start, edge_end = a[entries[0][1]], b[entries[0][1]]
             accepted_distance = 0.0
-            accepted_point = (round(float(edge_start[0]), 4), round(float(edge_start[1]), 4))
+            accepted_point = (
+                round(float(edge_start[0]), 4),
+                round(float(edge_start[1]), 4),
+            )
             for value, local in entries:
                 distance = value * edge_span
                 source = (float(point[local][0]), float(point[local][1]))
                 if edge_span - distance < minimum_face_length_m:
-                    destination = (round(float(edge_end[0]), 4), round(float(edge_end[1]), 4))
+                    destination = (
+                        round(float(edge_end[0]), 4),
+                        round(float(edge_end[1]), 4),
+                    )
                 elif distance - accepted_distance < minimum_face_length_m:
                     destination = accepted_point
                 else:
@@ -1883,7 +2317,9 @@ def insert_hanging_nodes(
             snapped_total += len(snap)
             continue
         insertions: dict[tuple[int, int], list[tuple[float, tuple[float, float]]]] = {}
-        for item, value, vertex in zip(segment_index[keep], parameter[keep], point[keep], strict=True):
+        for item, value, vertex in zip(
+            segment_index[keep], parameter[keep], point[keep], strict=True
+        ):
             edge = int(unpaired[int(item)])
             insertions.setdefault((int(owner[edge]), int(position[edge])), []).append(
                 (float(value), (float(vertex[0]), float(vertex[1]))),
@@ -1913,7 +2349,8 @@ def _straight_cuts(polygon: Polygon, through) -> list[Polygon]:
     ):
         try:
             parts = [
-                part for part in split(polygon, cut).geoms
+                part
+                for part in split(polygon, cut).geoms
                 if part.geom_type == "Polygon" and part.area > 0
             ]
         except Exception:
@@ -1924,7 +2361,8 @@ def _straight_cuts(polygon: Polygon, through) -> list[Polygon]:
 
 
 def split_cells_without_interior_centroid(
-    polygons: list[Polygon], max_cuts: int = 4,
+    polygons: list[Polygon],
+    max_cuts: int = 4,
 ) -> tuple[list[Polygon], int]:
     """Split any cell whose centroid falls outside it.
 
@@ -1954,7 +2392,9 @@ def split_cells_without_interior_centroid(
     if not len(outside):
         return list(polygons), 0
     pending = {int(index) for index in outside}
-    result: list[Polygon] = [polygon for index, polygon in enumerate(polygons) if index not in pending]
+    result: list[Polygon] = [
+        polygon for index, polygon in enumerate(polygons) if index not in pending
+    ]
     queue = [polygons[index] for index in sorted(pending)]
     split_count = 0
     for _ in range(max(1, max_cuts)):
@@ -1996,7 +2436,9 @@ def hole_free_parts(polygon: Polygon, max_cuts: int = 8) -> list[Polygon]:
             if not piece.interiors:
                 result.append(piece)
                 continue
-            parts = _straight_cuts(piece, Polygon(piece.interiors[0]).representative_point())
+            parts = _straight_cuts(
+                piece, Polygon(piece.interiors[0]).representative_point()
+            )
             following.extend(parts if len(parts) > 1 else [])
             if len(parts) <= 1:
                 # Neither cut separated the ring.  Keep the outer ring only:
@@ -2023,7 +2465,9 @@ def self_paired_cell_indices(polygons: list[Polygon]) -> np.ndarray:
     if not len(coordinates):
         return np.empty(0, dtype=np.int64)
     first = np.r_[0, np.cumsum(counts_per_cell[:-1])]
-    coordinate_owner = np.repeat(np.arange(len(objects), dtype=np.int64), counts_per_cell)
+    coordinate_owner = np.repeat(
+        np.arange(len(objects), dtype=np.int64), counts_per_cell
+    )
     is_edge_start = np.ones(len(coordinates), dtype=bool)
     is_edge_start[first + counts_per_cell - 1] = False
     start = np.flatnonzero(is_edge_start)
@@ -2036,16 +2480,27 @@ def self_paired_cell_indices(polygons: list[Polygon]) -> np.ndarray:
     swap = (start_xy[:, 0] > end_xy[:, 0]) | (
         (start_xy[:, 0] == end_xy[:, 0]) & (start_xy[:, 1] > end_xy[:, 1])
     )
-    edge_key = np.round(np.column_stack((
-        np.where(swap, end_xy[:, 0], start_xy[:, 0]), np.where(swap, end_xy[:, 1], start_xy[:, 1]),
-        np.where(swap, start_xy[:, 0], end_xy[:, 0]), np.where(swap, start_xy[:, 1], end_xy[:, 1]),
-    )), 8)
+    edge_key = np.round(
+        np.column_stack(
+            (
+                np.where(swap, end_xy[:, 0], start_xy[:, 0]),
+                np.where(swap, end_xy[:, 1], start_xy[:, 1]),
+                np.where(swap, start_xy[:, 0], end_xy[:, 0]),
+                np.where(swap, start_xy[:, 1], end_xy[:, 1]),
+            )
+        ),
+        8,
+    )
     order = np.lexsort((edge_key[:, 3], edge_key[:, 2], edge_key[:, 1], edge_key[:, 0]))
     sorted_key, sorted_owner = edge_key[order], owner[order]
-    group_start = np.r_[0, np.flatnonzero(np.any(sorted_key[1:] != sorted_key[:-1], axis=1)) + 1]
+    group_start = np.r_[
+        0, np.flatnonzero(np.any(sorted_key[1:] != sorted_key[:-1], axis=1)) + 1
+    ]
     group_end = np.r_[group_start[1:], len(sorted_key)]
     index = group_start[(group_end - group_start) == 2]
-    return np.unique(sorted_owner[index][sorted_owner[index] == sorted_owner[index + 1]])
+    return np.unique(
+        sorted_owner[index][sorted_owner[index] == sorted_owner[index + 1]]
+    )
 
 
 def _robust_union(left, right, grid_size: float = 1e-4, bridge_m: float = 0.01):
@@ -2074,18 +2529,24 @@ def _robust_union(left, right, grid_size: float = 1e-4, bridge_m: float = 0.01):
                 # union out and back in does not work -- eroding by the same
                 # amount reopens the bridge -- and a wider buffer would distort
                 # both cells.  This adds only the gap itself.
-                merged = unary_union((
-                    left, right,
-                    shortest_line(left, right).buffer(bridge_m, join_style="mitre"),
-                ))
+                merged = unary_union(
+                    (
+                        left,
+                        right,
+                        shortest_line(left, right).buffer(bridge_m, join_style="mitre"),
+                    )
+                )
         except Exception:
             continue
         if merged.geom_type == "Polygon" and merged.area > 0:
             return merged
     return None
 
+
 def absorb_named_cells(
-    polygons: list[Polygon], targets: set[int], report: dict[str, int] | None = None,
+    polygons: list[Polygon],
+    targets: set[int],
+    report: dict[str, int] | None = None,
     classes: list[str] | None = None,
 ) -> tuple[list[Polygon], int]:
     """Merge each named cell into whichever neighbour shares the most boundary.
@@ -2122,7 +2583,8 @@ def absorb_named_cells(
         if index in removed:
             continue
         neighbours = [
-            int(item) for item in tree.query(polygons[index], predicate="intersects")
+            int(item)
+            for item in tree.query(polygons[index], predicate="intersects")
             if int(item) != index and int(item) not in removed
         ]
         candidates = [item for item in neighbours if item not in targets]
@@ -2153,7 +2615,8 @@ def absorb_named_cells(
                 tree.query_nearest(polygons[index], exclusive=True, all_matches=False)
             )
             candidates = [
-                int(item) for item in nearest
+                int(item)
+                for item in nearest
                 if int(item) != index and int(item) not in removed
             ]
             if report is not None and candidates:
@@ -2168,11 +2631,15 @@ def absorb_named_cells(
         # gate then rejected.
         ordered = sorted(
             candidates,
-            key=lambda item: polygons[index].boundary.intersection(polygons[item].boundary).length,
+            key=lambda item: (
+                polygons[index].boundary.intersection(polygons[item].boundary).length
+            ),
             reverse=True,
         )
         for target in ordered:
-            joined = _robust_union(merged.get(target, polygons[target]), polygons[index])
+            joined = _robust_union(
+                merged.get(target, polygons[target]), polygons[index]
+            )
             if joined is None:
                 continue
             merged[target] = joined
@@ -2187,11 +2654,15 @@ def absorb_named_cells(
         # Keep the caller's class list index-aligned with the polygons we return,
         # the same way _agglomerate_short_face_cells does. Without this the next
         # pass reads a class off the wrong cell.
-        classes[:] = [item for index, item in enumerate(classes) if index not in removed]
+        classes[:] = [
+            item for index, item in enumerate(classes) if index not in removed
+        ]
     return [
         merged.get(index, polygon)
-        for index, polygon in enumerate(polygons) if index not in removed
+        for index, polygon in enumerate(polygons)
+        if index not in removed
     ], len(removed)
+
 
 def split_self_touching_cells(polygons: list[Polygon]) -> tuple[list[Polygon], int]:
     """Split a ring that walks the same segment twice into separate cells.
@@ -2213,7 +2684,8 @@ def split_self_touching_cells(polygons: list[Polygon]) -> tuple[list[Polygon], i
     """
     pinched = self_paired_cell_indices(polygons)
     pinched = np.union1d(
-        pinched, np.flatnonzero(~is_valid(np.asarray(polygons, dtype=object))),
+        pinched,
+        np.flatnonzero(~is_valid(np.asarray(polygons, dtype=object))),
     )
     if not len(pinched):
         return list(polygons), 0
@@ -2224,7 +2696,9 @@ def split_self_touching_cells(polygons: list[Polygon]) -> tuple[list[Polygon], i
         if index not in pinched_set:
             result.append(polygon)
             continue
-        ring = [(round(x, 4), round(y, 4)) for x, y in list(polygon.exterior.coords)[:-1]]
+        ring = [
+            (round(x, 4), round(y, 4)) for x, y in list(polygon.exterior.coords)[:-1]
+        ]
         cleaned = _despiked_ring(ring)
         candidate = Polygon(cleaned) if len(cleaned) >= 3 else polygon
         if not candidate.is_valid or candidate.area <= 0:
@@ -2240,7 +2714,9 @@ def split_self_touching_cells(polygons: list[Polygon]) -> tuple[list[Polygon], i
 
 
 def collapse_short_faces(
-    polygons: list[Polygon], minimum_length_m: float, max_passes: int = 4,
+    polygons: list[Polygon],
+    minimum_length_m: float,
+    max_passes: int = 4,
 ) -> tuple[list[Polygon], int]:
     """Weld vertex pairs that would export a face below the hydraulic floor.
 
@@ -2271,8 +2747,14 @@ def collapse_short_faces(
             return root
 
         for index in short:
-            left = (round(float(start_xy[index][0]), 4), round(float(start_xy[index][1]), 4))
-            right = (round(float(end_xy[index][0]), 4), round(float(end_xy[index][1]), 4))
+            left = (
+                round(float(start_xy[index][0]), 4),
+                round(float(start_xy[index][1]), 4),
+            )
+            right = (
+                round(float(end_xy[index][0]), 4),
+                round(float(end_xy[index][1]), 4),
+            )
             left_root, right_root = representative(left), representative(right)
             if left_root == right_root:
                 continue
@@ -2291,7 +2773,8 @@ def collapse_short_faces(
 
 
 def drop_null_area_cells(
-    polygons: list[Polygon], minimum_area_m2: float = 1e-6,
+    polygons: list[Polygon],
+    minimum_area_m2: float = 1e-6,
 ) -> tuple[list[Polygon], int]:
     """Remove cells that have collapsed onto a line.
 
@@ -2305,9 +2788,13 @@ def drop_null_area_cells(
     keep = [polygon for polygon in polygons if polygon.area > minimum_area_m2]
     return keep, len(polygons) - len(keep)
 
+
 def absorb_degenerate_cells(
-    polygons: list[Polygon], minimum_scale_m: float, max_passes: int = 4,
-    report: dict[str, int] | None = None, classes: list[str] | None = None,
+    polygons: list[Polygon],
+    minimum_scale_m: float,
+    max_passes: int = 4,
+    report: dict[str, int] | None = None,
+    classes: list[str] | None = None,
 ) -> tuple[list[Polygon], int]:
     """Absorb sub-floor fragments into whichever neighbour shares most boundary.
 
@@ -2327,8 +2814,13 @@ def absorb_degenerate_cells(
     absorbed_total = 0
     for _ in range(max_passes):
         objects = np.asarray(result, dtype=object)
-        scale = 2.0 * np.asarray([item.area for item in objects]) / np.maximum(
-            np.asarray([item.length for item in objects]), 1e-12,
+        scale = (
+            2.0
+            * np.asarray([item.area for item in objects])
+            / np.maximum(
+                np.asarray([item.length for item in objects]),
+                1e-12,
+            )
         )
         degenerate = set(np.flatnonzero(scale < minimum_scale_m).tolist())
         if not degenerate:
@@ -2338,6 +2830,7 @@ def absorb_degenerate_cells(
             break
         absorbed_total += absorbed
     return result, absorbed_total
+
 
 def hole_free_polygons(polygons: list[Polygon]) -> list[Polygon]:
     """Split every cell that has acquired an interior ring.
@@ -2356,7 +2849,10 @@ def hole_free_polygons(polygons: list[Polygon]) -> list[Polygon]:
 
 
 def rerouted_repair_pairs(
-    polygons: list[Polygon], pairs: np.ndarray, groups: list[str], protected_group: str,
+    polygons: list[Polygon],
+    pairs: np.ndarray,
+    groups: list[str],
+    protected_group: str,
 ) -> np.ndarray:
     """Send a cross-group bad face to a mergeable same-group neighbour instead.
 
@@ -2368,13 +2864,18 @@ def rerouted_repair_pairs(
     pairs = np.asarray(pairs, dtype=np.int64).reshape(-1, 2)
     reroute = [
         int(item)
-        for left, right in pairs if groups[left] != groups[right]
-        for item in (left, right) if groups[item] != protected_group
+        for left, right in pairs
+        if groups[left] != groups[right]
+        for item in (left, right)
+        if groups[item] != protected_group
     ]
     if not reroute:
         return np.empty((0, 2), dtype=np.int64)
     return _undersized_cell_repair_pairs(
-        polygons, np.unique(reroute), groups, same_class_only=True,
+        polygons,
+        np.unique(reroute),
+        groups,
+        same_class_only=True,
     )
 
 
@@ -2399,7 +2900,10 @@ def _robust_difference(left, right, grid_size: float = 1e-4):
 
 
 def fill_partition_voids(
-    polygons: list[Polygon], domain, search_radius_m: float, max_faces: int = 4000,
+    polygons: list[Polygon],
+    domain,
+    search_radius_m: float,
+    max_faces: int = 4000,
 ) -> tuple[list[Polygon], int, float, bool]:
     """Give back any area the cell set lost while vertices were being moved.
 
@@ -2436,12 +2940,18 @@ def fill_partition_voids(
     # it -- minutes of work to look for voids that by definition are interior.
     boundary_parts = _line_parts(domain.boundary)
     if boundary_parts:
-        midpoints = shapely_points(np.column_stack((
-            0.5 * (start_xy[unpaired][:, 0] + end_xy[unpaired][:, 0]),
-            0.5 * (start_xy[unpaired][:, 1] + end_xy[unpaired][:, 1]),
-        )))
+        midpoints = shapely_points(
+            np.column_stack(
+                (
+                    0.5 * (start_xy[unpaired][:, 0] + end_xy[unpaired][:, 0]),
+                    0.5 * (start_xy[unpaired][:, 1] + end_xy[unpaired][:, 1]),
+                )
+            )
+        )
         on_boundary = np.unique(
-            STRtree(boundary_parts).query(midpoints, predicate="dwithin", distance=1.0)[0]
+            STRtree(boundary_parts).query(midpoints, predicate="dwithin", distance=1.0)[
+                0
+            ]
         )
         interior = np.setdiff1d(np.arange(len(unpaired)), on_boundary)
         if not len(interior):
@@ -2452,9 +2962,16 @@ def fill_partition_voids(
     # Square caps and mitred joins with one segment per quadrant: a round buffer
     # of thousands of lines generates arc vertices whose union is where this
     # stalls, and the region only has to be a generous neighbourhood.
-    region = unary_union(segments).buffer(
-        max(search_radius_m, 1.0), quad_segs=1, cap_style="square", join_style="mitre",
-    ).intersection(domain)
+    region = (
+        unary_union(segments)
+        .buffer(
+            max(search_radius_m, 1.0),
+            quad_segs=1,
+            cap_style="square",
+            join_style="mitre",
+        )
+        .intersection(domain)
+    )
     if region.is_empty:
         return list(polygons), 0, 0.0, True
     tree = STRtree(polygons)
@@ -2464,7 +2981,9 @@ def fill_partition_voids(
     # An overlay difference can emit slivers that are collapsed rather than thin:
     # a square millimetre of area spread along a 60 m perimeter.  They are not
     # lost partition area, so they are dropped rather than reclaimed as cells.
-    remainder = _robust_difference(region, unary_union([polygons[int(item)] for item in local]))
+    remainder = _robust_difference(
+        region, unary_union([polygons[int(item)] for item in local])
+    )
     if remainder is None:
         # The overlay could not be completed even with precision reduction.  Do
         # not guess: leaving the void unreclaimed keeps it visible in the
@@ -2472,7 +2991,8 @@ def fill_partition_voids(
         # could delete real cells.
         return list(polygons), 0, 0.0, False
     voids = [
-        part for part in _polygon_parts(remainder)
+        part
+        for part in _polygon_parts(remainder)
         if part.area > 1e-6 and 2.0 * part.area / max(part.length, 1e-12) > 1e-3
     ]
     if not voids:
@@ -2500,8 +3020,12 @@ def fill_partition_voids(
 
 
 def conform_and_repair_cells(
-    polygons: list[Polygon], minimum_face_length_m: float, minimum_cell_scale_m: float, domain=None,
-    max_rounds: int = 5, classes: list[str] | None = None,
+    polygons: list[Polygon],
+    minimum_face_length_m: float,
+    minimum_cell_scale_m: float,
+    domain=None,
+    max_rounds: int = 5,
+    classes: list[str] | None = None,
 ) -> tuple[list[Polygon], dict[str, float]]:
     """Make a cell set conforming, then clear sub-floor faces, voids, and fragments.
 
@@ -2526,34 +3050,46 @@ def conform_and_repair_cells(
     and the two can trade work back and forth without converging.
     """
     totals = {
-        "inserted": 0, "snapped": 0, "welded": 0, "pinched": 0, "absorbed": 0,
-        "collapsed_dropped": 0, "voids_filled": 0, "void_area_m2": 0.0,
+        "inserted": 0,
+        "snapped": 0,
+        "welded": 0,
+        "pinched": 0,
+        "absorbed": 0,
+        "collapsed_dropped": 0,
+        "voids_filled": 0,
+        "void_area_m2": 0.0,
         "absorb_why": {},
-        "void_search_skipped": 0, "rounds": 0,
+        "void_search_skipped": 0,
+        "rounds": 0,
     }
     for _ in range(max(1, max_rounds)):
         totals["rounds"] += 1
         polygons = hole_free_polygons(polygons)
         polygons, inserted, snapped = insert_hanging_nodes(
-            polygons, minimum_face_length_m=minimum_face_length_m,
+            polygons,
+            minimum_face_length_m=minimum_face_length_m,
         )
         polygons, welded = collapse_short_faces(polygons, minimum_face_length_m)
         polygons, pinched = split_self_touching_cells(polygons)
         polygons = hole_free_polygons(polygons)
         polygons, voids_filled, void_area, void_search_ran = (
             fill_partition_voids(polygons, domain, 2.0 * minimum_face_length_m)
-            if domain is not None else (polygons, 0, 0.0, True)
+            if domain is not None
+            else (polygons, 0, 0.0, True)
         )
         polygons, collapsed = drop_null_area_cells(polygons)
         polygons, absorbed = absorb_degenerate_cells(
-            polygons, minimum_cell_scale_m, classes=classes,
+            polygons,
+            minimum_cell_scale_m,
+            classes=classes,
         )
         # Pair up whatever the welds, splits, and merges above have just broken.
         # This has to be inside the round, not after it: the pass may snap a
         # vertex, and a snap can create the very short face a weld exists to
         # remove, so its effect must be able to trigger another round.
         polygons, closing_inserted, closing_snapped = insert_hanging_nodes(
-            polygons, minimum_face_length_m=minimum_face_length_m,
+            polygons,
+            minimum_face_length_m=minimum_face_length_m,
         )
         # Check for self-pairing again afterwards.  Inserting a node into a ring
         # can make it walk one segment twice, and the quality scan then reports a
@@ -2567,7 +3103,8 @@ def conform_and_repair_cells(
         # cell outright, which always terminates, and 90 such cells out of
         # 328,000 is a far smaller compromise than a mesh the gate rejects.
         polygons, stubborn = absorb_named_cells(
-            polygons, set(self_paired_cell_indices(polygons).tolist()),
+            polygons,
+            set(self_paired_cell_indices(polygons).tolist()),
         )
         # Sub-floor absorption again, last.  The closing insert, the weld, and the
         # void filler all run after the first absorption and all create thin
@@ -2576,7 +3113,10 @@ def conform_and_repair_cells(
         # rounds were allowed.
         polygons, collapsed_late = drop_null_area_cells(polygons)
         polygons, absorbed_late = absorb_degenerate_cells(
-            polygons, minimum_cell_scale_m, report=totals["absorb_why"], classes=classes,
+            polygons,
+            minimum_cell_scale_m,
+            report=totals["absorb_why"],
+            classes=classes,
         )
         totals["inserted"] += inserted + closing_inserted
         totals["snapped"] += snapped + closing_snapped
@@ -2592,8 +3132,16 @@ def conform_and_repair_cells(
         # Inserting a node does not move geometry, so it cannot create a defect
         # for the next round.  Every other step can.
         if not (
-            snapped or closing_snapped or welded or pinched or closing_pinched
-            or absorbed or absorbed_late or stubborn or collapsed or collapsed_late
+            snapped
+            or closing_snapped
+            or welded
+            or pinched
+            or closing_pinched
+            or absorbed
+            or absorbed_late
+            or stubborn
+            or collapsed
+            or collapsed_late
             or voids_filled
         ):
             break
@@ -2603,13 +3151,17 @@ def conform_and_repair_cells(
     # pass here, then re-pair whatever it merged.
     polygons, closing_collapsed = drop_null_area_cells(polygons)
     polygons, closing_absorbed = absorb_degenerate_cells(
-        polygons, minimum_cell_scale_m, report=totals["absorb_why"], classes=classes,
+        polygons,
+        minimum_cell_scale_m,
+        report=totals["absorb_why"],
+        classes=classes,
     )
     totals["collapsed_dropped"] += closing_collapsed
     totals["absorbed"] += closing_absorbed
     if closing_collapsed or closing_absorbed:
         polygons, final_inserted, final_snapped = insert_hanging_nodes(
-            polygons, minimum_face_length_m=minimum_face_length_m,
+            polygons,
+            minimum_face_length_m=minimum_face_length_m,
         )
         totals["inserted"] += final_inserted
         totals["snapped"] += final_snapped
@@ -2617,7 +3169,9 @@ def conform_and_repair_cells(
 
 
 def substitute_river_strip(
-    background: list[Polygon], channel_geometry, strip_cells: list[Polygon],
+    background: list[Polygon],
+    channel_geometry,
+    strip_cells: list[Polygon],
 ) -> tuple[list[Polygon], np.ndarray]:
     """Cut the structured channel out of the background mesh and drop it in.
 
@@ -2640,7 +3194,8 @@ def substitute_river_strip(
     # than the rest of the build put together; the array form answers all of them
     # inside one C call.
     pairs = STRtree(strip_cells).query(
-        np.asarray(background, dtype=object), predicate="intersects",
+        np.asarray(background, dtype=object),
+        predicate="intersects",
     )
     touching: dict[int, list[int]] = {}
     for background_index, strip_index in zip(pairs[0], pairs[1], strict=True):
@@ -2659,7 +3214,8 @@ def substitute_river_strip(
                 break
         if remainder is None:
             remainder = _robust_difference(
-                polygon, unary_union([strip_cells[item] for item in local]),
+                polygon,
+                unary_union([strip_cells[item] for item in local]),
             )
         if remainder is None:
             remainder = _robust_difference(polygon, channel_geometry.buffer(0))
@@ -2674,13 +3230,15 @@ def substitute_river_strip(
                 continue
             result.extend(hole_free_parts(part) if part.interiors else [part])
     is_strip = np.zeros(len(result) + len(strip_cells), dtype=bool)
-    is_strip[len(result):] = True
+    is_strip[len(result) :] = True
     result.extend(strip_cells)
     return result, is_strip
 
 
 def internal_unpaired_edges(
-    edges: dict[tuple[tuple[float, float], tuple[float, float]], list[int]], domain, tolerance: float = 1.0,
+    edges: dict[tuple[tuple[float, float], tuple[float, float]], list[int]],
+    domain,
+    tolerance: float = 1.0,
 ) -> tuple[int, float]:
     """Count and measure single-owner faces that are not on the domain edge.
 
@@ -2691,17 +3249,26 @@ def internal_unpaired_edges(
     single = [key for key, owners in edges.items() if len(owners) == 1]
     if not single:
         return 0, 0.0
-    midpoints = shapely_points(np.asarray([
-        ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0) for a, b in single
-    ], dtype=np.float64))
+    midpoints = shapely_points(
+        np.asarray(
+            [((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0) for a, b in single],
+            dtype=np.float64,
+        )
+    )
     boundary_parts = _line_parts(domain.boundary)
     if not boundary_parts:
-        return len(single), float(sum(np.hypot(a[0] - b[0], a[1] - b[1]) for a, b in single))
+        return len(single), float(
+            sum(np.hypot(a[0] - b[0], a[1] - b[1]) for a, b in single)
+        )
     near = set(
-        STRtree(boundary_parts).query(midpoints, predicate="dwithin", distance=tolerance)[0].tolist()
+        STRtree(boundary_parts)
+        .query(midpoints, predicate="dwithin", distance=tolerance)[0]
+        .tolist()
     )
     interior = [key for index, key in enumerate(single) if index not in near]
-    return len(interior), float(sum(np.hypot(a[0] - b[0], a[1] - b[1]) for a, b in interior))
+    return len(interior), float(
+        sum(np.hypot(a[0] - b[0], a[1] - b[1]) for a, b in interior)
+    )
 
 
 def _merge_group_keys(feature_classes: list[str]) -> list[str]:
@@ -2713,13 +3280,19 @@ def _merge_group_keys(feature_classes: list[str]) -> list[str]:
     hard shoreline clip above would be undone by the very next repair pass.
     """
     return [
-        item if item in {"river", "waterbody"} else "surface" for item in feature_classes
+        item if item in {"river", "waterbody"} else "surface"
+        for item in feature_classes
     ]
 
 
 def _feature_classes(
-    polygons: list[Polygon], river_geometry, floodplain_geometry, urban: np.ndarray,
-    transform: Any, river_points: np.ndarray | None = None, waterbody_geometry=None,
+    polygons: list[Polygon],
+    river_geometry,
+    floodplain_geometry,
+    urban: np.ndarray,
+    transform: Any,
+    river_points: np.ndarray | None = None,
+    waterbody_geometry=None,
 ) -> list[str]:
     """Classify after hard splitting on the aligned source grid.
 
@@ -2734,31 +3307,48 @@ def _feature_classes(
     rows, cols = rasterio.transform.rowcol(transform, get_x(points), get_y(points))
     rows = np.asarray(rows, dtype=np.int64)
     cols = np.asarray(cols, dtype=np.int64)
-    inside = (rows >= 0) & (rows < urban.shape[0]) & (cols >= 0) & (cols < urban.shape[1])
+    inside = (
+        (rows >= 0) & (rows < urban.shape[0]) & (cols >= 0) & (cols < urban.shape[1])
+    )
     result = np.full(len(objects), "rural", dtype=object)
     valid_index = np.flatnonzero(inside)
     if len(valid_index):
         result[valid_index[urban[rows[valid_index], cols[valid_index]]]] = "urban"
     if not floodplain_geometry.is_empty:
         floodplain = geometry_mask(
-            [floodplain_geometry], out_shape=urban.shape, transform=transform, invert=True,
+            [floodplain_geometry],
+            out_shape=urban.shape,
+            transform=transform,
+            invert=True,
         )
-        result[valid_index[floodplain[rows[valid_index], cols[valid_index]]]] = "floodplain"
+        result[valid_index[floodplain[rows[valid_index], cols[valid_index]]]] = (
+            "floodplain"
+        )
     if not river_geometry.is_empty:
         river = geometry_mask(
-            [river_geometry], out_shape=urban.shape, transform=transform, invert=True,
+            [river_geometry],
+            out_shape=urban.shape,
+            transform=transform,
+            invert=True,
         )
         result[valid_index[river[rows[valid_index], cols[valid_index]]]] = "river"
     if waterbody_geometry is not None and not waterbody_geometry.is_empty:
         waterbody = geometry_mask(
-            [waterbody_geometry], out_shape=urban.shape, transform=transform, invert=True,
+            [waterbody_geometry],
+            out_shape=urban.shape,
+            transform=transform,
+            invert=True,
         )
-        result[valid_index[waterbody[rows[valid_index], cols[valid_index]]]] = "waterbody"
+        result[valid_index[waterbody[rows[valid_index], cols[valid_index]]]] = (
+            "waterbody"
+        )
     return result.tolist()
 
 
 def _geometry_area_fractions(
-    polygons: list[Polygon], geometry, tree: STRtree | None = None,
+    polygons: list[Polygon],
+    geometry,
+    tree: STRtree | None = None,
     feature_parts: list[Polygon] | None = None,
 ) -> np.ndarray:
     """Exact feature fractions, evaluating only polygons that intersect it.
@@ -2781,16 +3371,22 @@ def _geometry_area_fractions(
     # ``buffer(0)`` on an already-valid feature is pure cost, and for a
     # mask-derived floodplain covering a whole catchment it is one of the most
     # expensive calls in the build.  Only pay it when the geometry needs it.
-    parts = list(feature_parts) if feature_parts else (
-        [] if geometry is None or geometry.is_empty
-        else _polygon_parts(geometry if geometry.is_valid else geometry.buffer(0))
+    parts = (
+        list(feature_parts)
+        if feature_parts
+        else (
+            []
+            if geometry is None or geometry.is_empty
+            else _polygon_parts(geometry if geometry.is_valid else geometry.buffer(0))
+        )
     )
     if not parts:
         return result
     objects = np.asarray(polygons, dtype=object)
     part_objects = np.asarray(parts, dtype=object)
     pairs = (tree if tree is not None else STRtree(objects)).query(
-        part_objects, predicate="intersects",
+        part_objects,
+        predicate="intersects",
     )
     if not pairs.size:
         return result
@@ -2809,32 +3405,47 @@ def _geometry_area_fractions(
         try:
             clipped = intersection(objects[cells_here], part_objects[parts_here])
             overlap[begin:end] = np.fromiter(
-                (item.area for item in clipped), dtype=np.float64, count=end - begin,
+                (item.area for item in clipped),
+                dtype=np.float64,
+                count=end - begin,
             )
         except Exception:
             overlap[begin:end] = np.fromiter(
                 (
-                    objects[cell].buffer(0).intersection(part_objects[part].buffer(0)).area
+                    objects[cell]
+                    .buffer(0)
+                    .intersection(part_objects[part].buffer(0))
+                    .area
                     for cell, part in zip(cells_here, parts_here, strict=True)
                 ),
-                dtype=np.float64, count=end - begin,
+                dtype=np.float64,
+                count=end - begin,
             )
     numerator = np.zeros(len(polygons), dtype=np.float64)
     np.add.at(numerator, cell_index, overlap)
     touched = np.unique(cell_index)
     denominator = np.fromiter(
-        (item.area for item in objects[touched]), dtype=np.float64, count=len(touched),
+        (item.area for item in objects[touched]),
+        dtype=np.float64,
+        count=len(touched),
     )
     result[touched] = np.divide(
-        numerator[touched], denominator, out=np.zeros_like(denominator), where=denominator > 0,
+        numerator[touched],
+        denominator,
+        out=np.zeros_like(denominator),
+        where=denominator > 0,
     )
     return np.minimum(result, 1.0)
 
 
 def _fraction_refined_feature_classes(
-    feature_classes: list[str], river_channel_fraction: np.ndarray, floodplain_fraction: np.ndarray,
-    waterbody_fraction: np.ndarray, feature_class_fraction: float = 0.10,
-    river_channel_class_fraction: float = 0.5, waterbody_class_fraction: float = 0.10,
+    feature_classes: list[str],
+    river_channel_fraction: np.ndarray,
+    floodplain_fraction: np.ndarray,
+    waterbody_fraction: np.ndarray,
+    feature_class_fraction: float = 0.10,
+    river_channel_class_fraction: float = 0.5,
+    waterbody_class_fraction: float = 0.10,
 ) -> list[str]:
     result = np.asarray(feature_classes, dtype=object)
     river_cells = river_channel_fraction >= river_channel_class_fraction
@@ -2864,14 +3475,22 @@ def _polygons_from_seeds(seeds: np.ndarray, domain: Polygon) -> list[Polygon]:
     clipped = cells.copy()
     if boundary_segments:
         pairs = STRtree(boundary_segments).query(cells, predicate="intersects")
-        boundary_cells = np.unique(pairs[0]) if pairs.size else np.empty(0, dtype=np.int64)
+        boundary_cells = (
+            np.unique(pairs[0]) if pairs.size else np.empty(0, dtype=np.int64)
+        )
         if len(boundary_cells):
             clipped[boundary_cells] = intersection(cells[boundary_cells], domain)
-    return [geometry for geometry in clipped if geometry.geom_type == "Polygon" and geometry.area > 1e-8]
+    return [
+        geometry
+        for geometry in clipped
+        if geometry.geom_type == "Polygon" and geometry.area > 1e-8
+    ]
 
 
 def _bad_face_seed_removals(
-    seed_pairs: np.ndarray, protected: np.ndarray, seed_target: np.ndarray,
+    seed_pairs: np.ndarray,
+    protected: np.ndarray,
+    seed_target: np.ndarray,
 ) -> np.ndarray:
     """Greedily remove few generators while covering every repairable bad face."""
     pairs = np.unique(np.sort(np.asarray(seed_pairs, dtype=np.int64), axis=1), axis=0)
@@ -2898,9 +3517,16 @@ def _bad_face_seed_removals(
 
 
 def _repair_short_cells(
-    seeds: np.ndarray, domain: Polygon, minimum_cell_width_m: float, max_iterations: int = 6, protected_seed_count: int = 0,
-    target: np.ndarray | None = None, transform: Any | None = None, minimum_face_length_factor: float = 0.25,
-    minimum_center_distance_factor: float = 0.5, protected_seed_indices: np.ndarray | None = None,
+    seeds: np.ndarray,
+    domain: Polygon,
+    minimum_cell_width_m: float,
+    max_iterations: int = 6,
+    protected_seed_count: int = 0,
+    target: np.ndarray | None = None,
+    transform: Any | None = None,
+    minimum_face_length_factor: float = 0.25,
+    minimum_center_distance_factor: float = 0.5,
+    protected_seed_indices: np.ndarray | None = None,
 ) -> tuple[np.ndarray, list[Polygon], int]:
     """Remove generators responsible for undersized cells or internal faces.
 
@@ -2916,27 +3542,46 @@ def _repair_short_cells(
         protected[np.asarray(protected_seed_indices, dtype=np.int64)] = True
     for iteration in range(max_iterations + 1):
         polygons = _polygons_from_seeds(current, domain)
-        scale = 2.0 * np.asarray([item.area for item in polygons]) / np.maximum(np.asarray([item.length for item in polygons]), 1e-12)
+        scale = (
+            2.0
+            * np.asarray([item.area for item in polygons])
+            / np.maximum(np.asarray([item.length for item in polygons]), 1e-12)
+        )
         bad = np.flatnonzero(scale < floor)
         remove = np.empty(0, dtype=np.int64)
         forced_protected_removals = np.empty(0, dtype=np.int64)
         if len(bad):
-            representative_points = np.asarray([(polygons[index].representative_point().x, polygons[index].representative_point().y) for index in bad])
+            representative_points = np.asarray(
+                [
+                    (
+                        polygons[index].representative_point().x,
+                        polygons[index].representative_point().y,
+                    )
+                    for index in bad
+                ]
+            )
             remove = cKDTree(current).query(representative_points)[1]
         if target is not None and transform is not None:
             face_qa = _edge_quality(
-                polygons, current, target, transform,
+                polygons,
+                current,
+                target,
+                transform,
                 minimum_face_length_factor * minimum_cell_width_m,
                 minimum_center_distance_factor * minimum_cell_width_m,
             )
             if len(face_qa["bad_owners"]):
-                rows, cols = rasterio.transform.rowcol(transform, current[:, 0], current[:, 1])
+                rows, cols = rasterio.transform.rowcol(
+                    transform, current[:, 0], current[:, 1]
+                )
                 rows = np.clip(rows, 0, target.shape[0] - 1)
                 cols = np.clip(cols, 0, target.shape[1] - 1)
                 seed_target = target[np.asarray(rows), np.asarray(cols)]
                 owner_seed = face_qa["face_seed"]
                 edge_remove = _bad_face_seed_removals(
-                    owner_seed[face_qa["bad_owners"]], protected, seed_target,
+                    owner_seed[face_qa["bad_owners"]],
+                    protected,
+                    seed_target,
                 )
                 forced_protected_removals = edge_remove[protected[edge_remove]]
                 remove = np.r_[remove, edge_remove]
@@ -2956,7 +3601,12 @@ def _repair_short_cells(
     raise AssertionError("unreachable")
 
 
-def _topology(polygons: Iterable[Polygon]) -> tuple[list[list[tuple[float, float]]], dict[tuple[tuple[float, float], tuple[float, float]], list[int]]]:
+def _topology(
+    polygons: Iterable[Polygon],
+) -> tuple[
+    list[list[tuple[float, float]]],
+    dict[tuple[tuple[float, float], tuple[float, float]], list[int]],
+]:
     faces: list[list[tuple[float, float]]] = []
     edges: dict[tuple[tuple[float, float], tuple[float, float]], list[int]] = {}
     for face_id, polygon in enumerate(polygons):
@@ -2964,10 +3614,9 @@ def _topology(polygons: Iterable[Polygon]) -> tuple[list[list[tuple[float, float
         # distances.  If retained, two cells that meet at one point appear to
         # share a microscopic finite-volume face.  A 0.1 mm coordinate grid is
         # immaterial for metre-scale meshes and removes that false topology.
-        coordinates = _despiked_ring([
-            (round(x, 4), round(y, 4))
-            for x, y in list(polygon.exterior.coords)[:-1]
-        ])
+        coordinates = _despiked_ring(
+            [(round(x, 4), round(y, 4)) for x, y in list(polygon.exterior.coords)[:-1]]
+        )
         if len(coordinates) < 3:
             continue
         faces.append(coordinates)
@@ -2978,64 +3627,117 @@ def _topology(polygons: Iterable[Polygon]) -> tuple[list[list[tuple[float, float
 
 
 def _edge_quality(
-    polygons: list[Polygon], seeds: np.ndarray, target: np.ndarray, transform: Any,
-    minimum_face_length_m: float, minimum_center_distance_m: float,
+    polygons: list[Polygon],
+    seeds: np.ndarray,
+    target: np.ndarray,
+    transform: Any,
+    minimum_face_length_m: float,
+    minimum_center_distance_m: float,
 ) -> dict[str, Any]:
     """Evaluate finite-volume internal faces against their two local target sizes."""
     objects = np.asarray(polygons, dtype=object)
     coordinate_count = get_num_coordinates(objects)
     coordinates = get_coordinates(objects)
     if not len(coordinates):
-        return {"min_internal_face_length_m": 0.0, "min_internal_center_distance_m": 0.0, "short_internal_face_count": 0, "close_internal_center_count": 0, "bad_owners": np.empty((0, 2), dtype=np.int64), "short_owners": np.empty((0, 2), dtype=np.int64), "face_seed": np.empty(0, dtype=np.int64), "face_target_m": np.empty(0)}
+        return {
+            "min_internal_face_length_m": 0.0,
+            "min_internal_center_distance_m": 0.0,
+            "short_internal_face_count": 0,
+            "close_internal_center_count": 0,
+            "bad_owners": np.empty((0, 2), dtype=np.int64),
+            "short_owners": np.empty((0, 2), dtype=np.int64),
+            "face_seed": np.empty(0, dtype=np.int64),
+            "face_target_m": np.empty(0),
+        }
     # The former implementation built a Python dictionary by iterating every
     # vertex of every polygon.  This vector form keeps the same rounded-edge
     # convention while making the 1.2 M-cell Pune quality check practical.
     first = np.r_[0, np.cumsum(coordinate_count[:-1])]
-    coordinate_owner = np.repeat(np.arange(len(objects), dtype=np.int64), coordinate_count)
+    coordinate_owner = np.repeat(
+        np.arange(len(objects), dtype=np.int64), coordinate_count
+    )
     edge_start = np.ones(len(coordinates), dtype=bool)
     edge_start[first + coordinate_count - 1] = False  # closed polygon ring
     start = np.flatnonzero(edge_start)
     edge_owner = coordinate_owner[start]
     edge_start_xy = coordinates[start]
     edge_end_xy = coordinates[start + 1]
-    nonzero = np.hypot(
-        edge_start_xy[:, 0] - edge_end_xy[:, 0], edge_start_xy[:, 1] - edge_end_xy[:, 1],
-    ) > 1e-8
+    nonzero = (
+        np.hypot(
+            edge_start_xy[:, 0] - edge_end_xy[:, 0],
+            edge_start_xy[:, 1] - edge_end_xy[:, 1],
+        )
+        > 1e-8
+    )
     edge_owner = edge_owner[nonzero]
     edge_start_xy = edge_start_xy[nonzero]
     edge_end_xy = edge_end_xy[nonzero]
     if not len(edge_owner):
-        return {"min_internal_face_length_m": 0.0, "min_internal_center_distance_m": 0.0, "short_internal_face_count": 0, "close_internal_center_count": 0, "bad_owners": np.empty((0, 2), dtype=np.int64), "short_owners": np.empty((0, 2), dtype=np.int64), "face_seed": np.empty(0, dtype=np.int64), "face_target_m": np.empty(0)}
+        return {
+            "min_internal_face_length_m": 0.0,
+            "min_internal_center_distance_m": 0.0,
+            "short_internal_face_count": 0,
+            "close_internal_center_count": 0,
+            "bad_owners": np.empty((0, 2), dtype=np.int64),
+            "short_owners": np.empty((0, 2), dtype=np.int64),
+            "face_seed": np.empty(0, dtype=np.int64),
+            "face_target_m": np.empty(0),
+        }
     swap = (edge_start_xy[:, 0] > edge_end_xy[:, 0]) | (
-        (edge_start_xy[:, 0] == edge_end_xy[:, 0]) & (edge_start_xy[:, 1] > edge_end_xy[:, 1])
+        (edge_start_xy[:, 0] == edge_end_xy[:, 0])
+        & (edge_start_xy[:, 1] > edge_end_xy[:, 1])
     )
-    edge_key = np.round(np.column_stack((
-        np.where(swap, edge_end_xy[:, 0], edge_start_xy[:, 0]),
-        np.where(swap, edge_end_xy[:, 1], edge_start_xy[:, 1]),
-        np.where(swap, edge_start_xy[:, 0], edge_end_xy[:, 0]),
-        np.where(swap, edge_start_xy[:, 1], edge_end_xy[:, 1]),
-    )), 8)
+    edge_key = np.round(
+        np.column_stack(
+            (
+                np.where(swap, edge_end_xy[:, 0], edge_start_xy[:, 0]),
+                np.where(swap, edge_end_xy[:, 1], edge_start_xy[:, 1]),
+                np.where(swap, edge_start_xy[:, 0], edge_end_xy[:, 0]),
+                np.where(swap, edge_start_xy[:, 1], edge_end_xy[:, 1]),
+            )
+        ),
+        8,
+    )
     order = np.lexsort((edge_key[:, 3], edge_key[:, 2], edge_key[:, 1], edge_key[:, 0]))
     edge_key = edge_key[order]
     edge_owner = edge_owner[order]
-    group_start = np.r_[0, np.flatnonzero(np.any(edge_key[1:] != edge_key[:-1], axis=1)) + 1]
+    group_start = np.r_[
+        0, np.flatnonzero(np.any(edge_key[1:] != edge_key[:-1], axis=1)) + 1
+    ]
     group_end = np.r_[group_start[1:], len(edge_key)]
     paired = (group_end - group_start) == 2
     if not np.any(paired):
-        return {"min_internal_face_length_m": 0.0, "min_internal_center_distance_m": 0.0, "short_internal_face_count": 0, "close_internal_center_count": 0, "bad_owners": np.empty((0, 2), dtype=np.int64), "short_owners": np.empty((0, 2), dtype=np.int64), "face_seed": np.empty(0, dtype=np.int64), "face_target_m": np.empty(0)}
+        return {
+            "min_internal_face_length_m": 0.0,
+            "min_internal_center_distance_m": 0.0,
+            "short_internal_face_count": 0,
+            "close_internal_center_count": 0,
+            "bad_owners": np.empty((0, 2), dtype=np.int64),
+            "short_owners": np.empty((0, 2), dtype=np.int64),
+            "face_seed": np.empty(0, dtype=np.int64),
+            "face_target_m": np.empty(0),
+        }
     owner_index = group_start[paired]
     owners = np.column_stack((edge_owner[owner_index], edge_owner[owner_index + 1]))
     internal_key = edge_key[owner_index]
-    lengths = np.hypot(internal_key[:, 0] - internal_key[:, 2], internal_key[:, 1] - internal_key[:, 3])
+    lengths = np.hypot(
+        internal_key[:, 0] - internal_key[:, 2], internal_key[:, 1] - internal_key[:, 3]
+    )
     representative_geometry = point_on_surface(objects)
-    representative = np.column_stack((get_x(representative_geometry), get_y(representative_geometry)))
+    representative = np.column_stack(
+        (get_x(representative_geometry), get_y(representative_geometry))
+    )
     face_seed = cKDTree(seeds).query(representative)[1]
     rows, cols = rasterio.transform.rowcol(transform, seeds[:, 0], seeds[:, 1])
-    rows = np.clip(rows, 0, target.shape[0] - 1); cols = np.clip(cols, 0, target.shape[1] - 1)
+    rows = np.clip(rows, 0, target.shape[0] - 1)
+    cols = np.clip(cols, 0, target.shape[1] - 1)
     face_target = target[np.asarray(rows), np.asarray(cols)]
     centres_geometry = centroid(objects)
     centres = np.column_stack((get_x(centres_geometry), get_y(centres_geometry)))
-    distance = np.hypot(centres[owners[:, 0], 0] - centres[owners[:, 1], 0], centres[owners[:, 0], 1] - centres[owners[:, 1], 1])
+    distance = np.hypot(
+        centres[owners[:, 0], 0] - centres[owners[:, 1], 0],
+        centres[owners[:, 0], 1] - centres[owners[:, 1], 1],
+    )
     short = lengths < minimum_face_length_m
     close = distance < minimum_center_distance_m
     return {
@@ -3053,8 +3755,12 @@ def _edge_quality(
 
 
 def _agglomerate_short_face_cells(
-    polygons: list[Polygon], minimum_face_length_m: float, minimum_center_distance_m: float = 0.0,
-    minimum_cell_scale_m: float = 0.0, max_merges: int = 256, classes: list[str] | None = None,
+    polygons: list[Polygon],
+    minimum_face_length_m: float,
+    minimum_center_distance_m: float = 0.0,
+    minimum_cell_scale_m: float = 0.0,
+    max_merges: int = 256,
+    classes: list[str] | None = None,
     candidate_pairs: np.ndarray | None = None,
 ) -> tuple[list[Polygon], int]:
     """Replace only pathological Voronoi fragments with their neighbour.
@@ -3094,7 +3800,8 @@ def _agglomerate_short_face_cells(
             return current, 0
         return [
             merged_at[index] if index in merged_at else polygon
-            for index, polygon in enumerate(current) if index not in removed
+            for index, polygon in enumerate(current)
+            if index not in removed
         ], len(merged_at)
     merges = 0
     while merges < max_merges:
@@ -3107,17 +3814,23 @@ def _agglomerate_short_face_cells(
             ),
             key=lambda item: item[0],
         )
-        same_class = lambda owners: classes is None or classes[owners[0]] == classes[owners[1]]
+
+        def same_class(owners):
+            return classes is None or classes[owners[0]] == classes[owners[1]]
+
         face_candidates = [item for item in face_candidates if same_class(item[1])]
         if face_candidates and face_candidates[0][0] < minimum_face_length_m:
             _, (left, right) = face_candidates[0]
         elif minimum_center_distance_m > 0 and face_candidates:
-            centres = np.asarray([(item.centroid.x, item.centroid.y) for item in current])
+            centres = np.asarray(
+                [(item.centroid.x, item.centroid.y) for item in current]
+            )
             close_candidates = sorted(
                 (
                     (np.hypot(*(centres[owners[0]] - centres[owners[1]])), owners)
                     for _, owners in face_candidates
-                    if np.hypot(*(centres[owners[0]] - centres[owners[1]])) < minimum_center_distance_m
+                    if np.hypot(*(centres[owners[0]] - centres[owners[1]]))
+                    < minimum_center_distance_m
                 ),
                 key=lambda item: item[0],
             )
@@ -3126,21 +3839,31 @@ def _agglomerate_short_face_cells(
             if close_candidates:
                 _, (left, right) = close_candidates[0]
             else:
-                scales = np.asarray([2.0 * item.area / max(item.length, 1e-12) for item in current])
+                scales = np.asarray(
+                    [2.0 * item.area / max(item.length, 1e-12) for item in current]
+                )
                 bad = int(np.argmin(scales))
                 if minimum_cell_scale_m <= 0 or scales[bad] >= minimum_cell_scale_m:
                     break
-                neighbours = [(length, owners) for length, owners in face_candidates if bad in owners]
+                neighbours = [
+                    (length, owners)
+                    for length, owners in face_candidates
+                    if bad in owners
+                ]
                 if not neighbours:
                     break
                 _, owners = max(neighbours, key=lambda item: item[0])
                 left, right = owners
         elif minimum_cell_scale_m > 0:
-            scales = np.asarray([2.0 * item.area / max(item.length, 1e-12) for item in current])
+            scales = np.asarray(
+                [2.0 * item.area / max(item.length, 1e-12) for item in current]
+            )
             bad = int(np.argmin(scales))
             if scales[bad] >= minimum_cell_scale_m:
                 break
-            neighbours = [(length, owners) for length, owners in face_candidates if bad in owners]
+            neighbours = [
+                (length, owners) for length, owners in face_candidates if bad in owners
+            ]
             if not neighbours:
                 break
             _, (left, right) = max(neighbours, key=lambda item: item[0])
@@ -3158,7 +3881,10 @@ def _agglomerate_short_face_cells(
 
 
 def _undersized_cell_repair_pairs(
-    polygons: list[Polygon], bad: np.ndarray, classes: list[str], same_class_only: bool = True,
+    polygons: list[Polygon],
+    bad: np.ndarray,
+    classes: list[str],
+    same_class_only: bool = True,
 ) -> np.ndarray:
     """Pair each undersized cell with its longest same-class neighbour."""
     tree = STRtree(polygons)
@@ -3169,15 +3895,21 @@ def _undersized_cell_repair_pairs(
             continue
         candidates = tree.query(polygons[int(left)], predicate="touches")
         candidates = [
-            int(right) for right in candidates
-            if right != left and int(right) not in used
+            int(right)
+            for right in candidates
+            if right != left
+            and int(right) not in used
             and (not same_class_only or classes[int(right)] == classes[int(left)])
         ]
         if not candidates:
             continue
         right = max(
             candidates,
-            key=lambda item: polygons[int(left)].boundary.intersection(polygons[item].boundary).length,
+            key=lambda item: (
+                polygons[int(left)]
+                .boundary.intersection(polygons[item].boundary)
+                .length
+            ),
         )
         pairs.append((int(left), right))
         used.update((int(left), right))
@@ -3185,7 +3917,9 @@ def _undersized_cell_repair_pairs(
 
 
 def area_weighted_cell_target(
-    polygons: list[Polygon], target: np.ndarray, transform: Any,
+    polygons: list[Polygon],
+    target: np.ndarray,
+    transform: Any,
 ) -> np.ndarray:
     """Average the intended cell size over each cell's footprint.
 
@@ -3213,7 +3947,10 @@ def area_weighted_cell_target(
     # the size field per cell in a single pass over the grid.
     ownership = rasterize(
         ((polygon, index) for index, polygon in enumerate(polygons)),
-        out_shape=target.shape, transform=transform, fill=-1, dtype="int32",
+        out_shape=target.shape,
+        transform=transform,
+        fill=-1,
+        dtype="int32",
         all_touched=False,
     )
     covered = ownership >= 0
@@ -3229,7 +3966,9 @@ def area_weighted_cell_target(
 
 
 def _cell_bed_elevation(
-    polygons: list[Polygon], dem: np.ndarray, transform: Any,
+    polygons: list[Polygon],
+    dem: np.ndarray,
+    transform: Any,
 ) -> np.ndarray:
     """Sample cell-centre elevations, repairing only NoData centre samples."""
     centres = np.asarray([(item.centroid.x, item.centroid.y) for item in polygons])
@@ -3242,7 +3981,10 @@ def _cell_bed_elevation(
         return result
     ownership = rasterize(
         ((polygons[index], int(index)) for index in np.flatnonzero(missing)),
-        out_shape=dem.shape, transform=transform, fill=-1, dtype="int32",
+        out_shape=dem.shape,
+        transform=transform,
+        fill=-1,
+        dtype="int32",
         all_touched=False,
     )
     covered = (ownership >= 0) & np.isfinite(dem)
@@ -3258,19 +4000,33 @@ def _cell_bed_elevation(
         if not finite.any():
             raise ValueError("The mesh DEM contains no finite elevations.")
         _, nearest = distance_transform_edt(~finite, return_indices=True)
-        result[missing] = dem[nearest[0, rows[missing], cols[missing]], nearest[1, rows[missing], cols[missing]]]
+        result[missing] = dem[
+            nearest[0, rows[missing], cols[missing]],
+            nearest[1, rows[missing], cols[missing]],
+        ]
     return result
 
 
 def _write_ugrid(
-    path: Path, faces: list[list[tuple[float, float]]], edges: dict[Any, list[int]], polygons: list[Polygon], crs: Any,
-    target: np.ndarray, transform: Any, dem: np.ndarray, feature_classes: list[str],
-    river_fraction: np.ndarray, river_channel_fraction: np.ndarray, floodplain_fraction: np.ndarray,
-    waterbody_fraction: np.ndarray | None = None, river_strip: dict[str, np.ndarray] | None = None,
+    path: Path,
+    faces: list[list[tuple[float, float]]],
+    edges: dict[Any, list[int]],
+    polygons: list[Polygon],
+    crs: Any,
+    target: np.ndarray,
+    transform: Any,
+    dem: np.ndarray,
+    feature_classes: list[str],
+    river_fraction: np.ndarray,
+    river_channel_fraction: np.ndarray,
+    floodplain_fraction: np.ndarray,
+    waterbody_fraction: np.ndarray | None = None,
+    river_strip: dict[str, np.ndarray] | None = None,
     cell_target_width: np.ndarray | None = None,
 ) -> dict[str, float]:
     export_report: dict[str, float] = {
-        "merged_internal_faces": 0, "non_collinear_merged_faces": 0,
+        "merged_internal_faces": 0,
+        "non_collinear_merged_faces": 0,
         "merged_face_length_deficit_m": 0.0,
     }
     nodes = sorted({point for face in faces for point in face})
@@ -3286,18 +4042,25 @@ def _write_ugrid(
     # they are counted here and reported in QA instead.
     face_length_floor = 1e-6
     usable_edges = [
-        (key, owners) for key, owners in edges.items()
+        (key, owners)
+        for key, owners in edges.items()
         if len(owners) <= 2
         and np.hypot(key[0][0] - key[1][0], key[0][1] - key[1][1]) > face_length_floor
     ]
     zero_length_faces = sum(
-        1 for key, owners in edges.items()
+        1
+        for key, owners in edges.items()
         if len(owners) <= 2
         and np.hypot(key[0][0] - key[1][0], key[0][1] - key[1][1]) <= face_length_floor
     )
     owner = np.asarray([owners[0] for _, owners in usable_edges], dtype=np.int32)
-    neighbour = np.asarray([owners[1] if len(owners) == 2 else -1 for _, owners in usable_edges], dtype=np.int32)
-    length = np.asarray([np.hypot(a[0] - b[0], a[1] - b[1]) for (a, b), _ in usable_edges])
+    neighbour = np.asarray(
+        [owners[1] if len(owners) == 2 else -1 for _, owners in usable_edges],
+        dtype=np.int32,
+    )
+    length = np.asarray(
+        [np.hypot(a[0] - b[0], a[1] - b[1]) for (a, b), _ in usable_edges]
+    )
     centres = np.asarray([(item.centroid.x, item.centroid.y) for item in polygons])
     areas = np.asarray([item.area for item in polygons])
     rows, cols = rasterio.transform.rowcol(transform, centres[:, 0], centres[:, 1])
@@ -3316,12 +4079,19 @@ def _write_ugrid(
     )
     control_width = np.full(len(faces), np.inf)
     for edge_index, (left, right) in enumerate(zip(owner, neighbour)):
-        width = 2.0 * center_distance[edge_index] if right < 0 else center_distance[edge_index]
+        width = (
+            2.0 * center_distance[edge_index]
+            if right < 0
+            else center_distance[edge_index]
+        )
         control_width[left] = min(control_width[left], width)
         if right >= 0:
             control_width[right] = min(control_width[right], width)
     refinement_codes = np.asarray(
-        [{"rural": 0, "urban": 1, "floodplain": 2, "river": 3, "waterbody": 4}[item] for item in feature_classes],
+        [
+            {"rural": 0, "urban": 1, "floodplain": 2, "river": 3, "waterbody": 4}[item]
+            for item in feature_classes
+        ],
         dtype=np.int16,
     )
     if waterbody_fraction is None:
@@ -3333,13 +4103,15 @@ def _write_ugrid(
     # centroid dot-product then reversed that normal, so the cell's outward
     # normals no longer summed to zero and a uniform flux had a non-zero
     # divergence.  Ring winding is exact for any simple polygon, convex or not.
-    ring_normal: dict[tuple[tuple[float, float], tuple[float, float]], tuple[float, float]] = {}
+    ring_normal: dict[
+        tuple[tuple[float, float], tuple[float, float]], tuple[float, float]
+    ] = {}
     for face in faces:
         ring = np.asarray(face, dtype=np.float64)
         following = np.roll(ring, -1, axis=0)
-        signed_area = 0.5 * float(np.sum(
-            ring[:, 0] * following[:, 1] - following[:, 0] * ring[:, 1]
-        ))
+        signed_area = 0.5 * float(
+            np.sum(ring[:, 0] * following[:, 1] - following[:, 0] * ring[:, 1])
+        )
         winding = 1.0 if signed_area > 0 else -1.0
         for start, end in zip(face, face[1:] + face[:1]):
             if start == end:
@@ -3350,7 +4122,8 @@ def _write_ugrid(
             dx, dy = end[0] - start[0], end[1] - start[1]
             span = max(np.hypot(dx, dy), 1e-12)
             ring_normal[key] = (winding * dy / span, -winding * dx / span)
-    normal_x = np.empty(len(usable_edges)); normal_y = np.empty(len(usable_edges))
+    normal_x = np.empty(len(usable_edges))
+    normal_y = np.empty(len(usable_edges))
     for index, (key, owners) in enumerate(usable_edges):
         oriented = ring_normal.get(tuple(sorted(key)))
         if oriented is None:
@@ -3368,18 +4141,29 @@ def _write_ugrid(
     if np.any(internal):
         swap = internal & (owner > neighbour)
         owner[swap], neighbour[swap] = neighbour[swap].copy(), owner[swap].copy()
-        normal_x[swap] *= -1; normal_y[swap] *= -1
+        normal_x[swap] *= -1
+        normal_y[swap] *= -1
         internal_index = np.flatnonzero(internal)
         order = np.lexsort((neighbour[internal], owner[internal]))
         internal_index = internal_index[order]
-        sorted_owner = owner[internal_index]; sorted_neighbour = neighbour[internal_index]
-        starts = np.r_[0, np.flatnonzero(
-            (sorted_owner[1:] != sorted_owner[:-1]) |
-            (sorted_neighbour[1:] != sorted_neighbour[:-1])
-        ) + 1]
+        sorted_owner = owner[internal_index]
+        sorted_neighbour = neighbour[internal_index]
+        starts = np.r_[
+            0,
+            np.flatnonzero(
+                (sorted_owner[1:] != sorted_owner[:-1])
+                | (sorted_neighbour[1:] != sorted_neighbour[:-1])
+            )
+            + 1,
+        ]
         weights = length[internal_index]
         total_length = np.add.reduceat(weights, starts)
-        aggregate = lambda values: np.add.reduceat(values[internal_index] * weights, starts) / total_length
+
+        def aggregate(values):
+            return (
+                np.add.reduceat(values[internal_index] * weights, starts) / total_length
+            )
+
         merged_owner = sorted_owner[starts]
         merged_neighbour = sorted_neighbour[starts]
         merged_midpoint_x = aggregate(midpoint_x)
@@ -3396,7 +4180,8 @@ def _write_ugrid(
         merged_normal_y = np.add.reduceat(normal_y[internal_index] * weights, starts)
         projected_length = np.hypot(merged_normal_x, merged_normal_y)
         normal_scale = np.maximum(projected_length, 1e-12)
-        merged_normal_x /= normal_scale; merged_normal_y /= normal_scale
+        merged_normal_x /= normal_scale
+        merged_normal_y /= normal_scale
         merged_distance = center_distance[internal_index[starts]]
         # Where the segments are not collinear the conservative face is narrower
         # than the wetted interface.  Report it rather than let conveyance quietly
@@ -3406,7 +4191,9 @@ def _write_ugrid(
         export_report = {
             "merged_internal_faces": int(len(starts)),
             "non_collinear_merged_faces": int(non_collinear.sum()),
-            "merged_face_length_deficit_m": float((total_length - projected_length)[non_collinear].sum()),
+            "merged_face_length_deficit_m": float(
+                (total_length - projected_length)[non_collinear].sum()
+            ),
         }
         total_length = projected_length
         boundary_index = np.flatnonzero(~internal)
@@ -3420,7 +4207,11 @@ def _write_ugrid(
         center_distance = np.r_[merged_distance, center_distance[boundary_index]]
         control_width = np.full(len(faces), np.inf)
         for edge_index, (left, right) in enumerate(zip(owner, neighbour)):
-            width = 2.0 * center_distance[edge_index] if right < 0 else center_distance[edge_index]
+            width = (
+                2.0 * center_distance[edge_index]
+                if right < 0
+                else center_distance[edge_index]
+            )
             control_width[left] = min(control_width[left], width)
             if right >= 0:
                 control_width[right] = min(control_width[right], width)
@@ -3438,7 +4229,10 @@ def _write_ugrid(
         ds.crs_wkt = crs.to_wkt() if crs else ""
         ds.edge_normal_convention = EDGE_NORMAL_CONVENTION
         apply_contract_attributes(ds, product="hydraulic_mesh")
-        ds.createDimension("face", len(faces)); ds.createDimension("node", len(nodes)); ds.createDimension("edge", len(owner)); ds.createDimension("max_face_nodes", connectivity.shape[1])
+        ds.createDimension("face", len(faces))
+        ds.createDimension("node", len(nodes))
+        ds.createDimension("edge", len(owner))
+        ds.createDimension("max_face_nodes", connectivity.shape[1])
         topology = ds.createVariable("mesh2d", "i4")
         topology.cf_role = "mesh_topology"
         topology.topology_dimension = 2
@@ -3446,17 +4240,40 @@ def _write_ugrid(
         topology.face_node_connectivity = "mesh2d_face_nodes"
         topology.face_coordinates = "mesh2d_face_x mesh2d_face_y"
         face_nodes = ds.createVariable(
-            "mesh2d_face_nodes", "i4", ("face", "max_face_nodes"), fill_value=-1,
+            "mesh2d_face_nodes",
+            "i4",
+            ("face", "max_face_nodes"),
+            fill_value=-1,
         )
         face_nodes.start_index = 0
         face_nodes[:] = connectivity
-        node_x = ds.createVariable("mesh2d_node_x", "f8", ("node",)); node_x.units = "m"; node_x[:] = [item[0] for item in nodes]
-        node_y = ds.createVariable("mesh2d_node_y", "f8", ("node",)); node_y.units = "m"; node_y[:] = [item[1] for item in nodes]
-        for name, value in {"cell_area_m2": areas, "cell_bed_elevation_m": _cell_bed_elevation(polygons, dem, transform), "mesh2d_face_x": centres[:, 0], "mesh2d_face_y": centres[:, 1], "cell_target_width_m": target[rows, cols] if cell_target_width is None else cell_target_width, "cell_cfl_width_m": control_width, "cell_hydraulic_roughness": np.full(len(faces), np.nan)}.items():
+        node_x = ds.createVariable("mesh2d_node_x", "f8", ("node",))
+        node_x.units = "m"
+        node_x[:] = [item[0] for item in nodes]
+        node_y = ds.createVariable("mesh2d_node_y", "f8", ("node",))
+        node_y.units = "m"
+        node_y[:] = [item[1] for item in nodes]
+        for name, value in {
+            "cell_area_m2": areas,
+            "cell_bed_elevation_m": _cell_bed_elevation(polygons, dem, transform),
+            "mesh2d_face_x": centres[:, 0],
+            "mesh2d_face_y": centres[:, 1],
+            "cell_target_width_m": target[rows, cols]
+            if cell_target_width is None
+            else cell_target_width,
+            "cell_cfl_width_m": control_width,
+            "cell_hydraulic_roughness": np.full(len(faces), np.nan),
+        }.items():
             variable = ds.createVariable(name, "f8", ("face",))
-            variable.units = "s m-1/3" if name == "cell_hydraulic_roughness" else ("m2" if name == "cell_area_m2" else "m")
+            variable.units = (
+                "s m-1/3"
+                if name == "cell_hydraulic_roughness"
+                else ("m2" if name == "cell_area_m2" else "m")
+            )
             variable[:] = value
-        ds.createVariable("cell_refinement_source", "i2", ("face",))[:] = refinement_codes
+        ds.createVariable("cell_refinement_source", "i2", ("face",))[:] = (
+            refinement_codes
+        )
         ds.createVariable("edge_owner", "i4", ("edge",))[:] = owner
         ds.createVariable("edge_neighbor", "i4", ("edge",))[:] = neighbour
         for name, value in {
@@ -3465,57 +4282,107 @@ def _write_ugrid(
             "edge_midpoint_x": midpoint_x,
             "edge_midpoint_y": midpoint_y,
         }.items():
-            variable = ds.createVariable(name, "f8", ("edge",)); variable.units = "m"; variable[:] = value
+            variable = ds.createVariable(name, "f8", ("edge",))
+            variable.units = "m"
+            variable[:] = value
         ds.createVariable("edge_normal_x", "f8", ("edge",))[:] = normal_x
         ds.createVariable("edge_normal_y", "f8", ("edge",))[:] = normal_y
         ds.createVariable("edge_boundary_type", "i2", ("edge",))[:] = 0
         ds.createVariable("cell_river_fraction", "f8", ("face",))[:] = river_fraction
-        ds.createVariable("cell_river_channel_fraction", "f8", ("face",))[:] = river_channel_fraction
-        ds.createVariable("cell_floodplain_fraction", "f8", ("face",))[:] = floodplain_fraction
-        ds.createVariable("cell_waterbody_fraction", "f8", ("face",))[:] = waterbody_fraction
-        ds.createVariable("cell_feature_class", str, ("face",))[:] = np.asarray(feature_classes, dtype=object)
+        ds.createVariable("cell_river_channel_fraction", "f8", ("face",))[:] = (
+            river_channel_fraction
+        )
+        ds.createVariable("cell_floodplain_fraction", "f8", ("face",))[:] = (
+            floodplain_fraction
+        )
+        ds.createVariable("cell_waterbody_fraction", "f8", ("face",))[:] = (
+            waterbody_fraction
+        )
+        ds.createVariable("cell_feature_class", str, ("face",))[:] = np.asarray(
+            feature_classes, dtype=object
+        )
         ds.zero_length_faces_dropped = int(zero_length_faces)
         # Reach/station identity of a structured river cell.  ``-1``/NaN marks a
         # cell that is not part of the ribbon, so a model can select resolved 2-D
         # river cells without re-deriving them from geometry.
         for name, value in (river_strip or {}).items():
-            ds.createVariable(name, "i4" if np.issubdtype(value.dtype, np.integer) else "f8", ("face",))[:] = value
+            ds.createVariable(
+                name,
+                "i4" if np.issubdtype(value.dtype, np.integer) else "f8",
+                ("face",),
+            )[:] = value
     export_report["minimum_exported_cfl_width_m"] = float(np.min(control_width))
     export_report["zero_length_faces_dropped"] = int(zero_length_faces)
     return export_report
 
 
 def _write_mesh_class_figure(
-    path: Path, polygons: list[Polygon], feature_classes: list[str], crs: Any,
-    river_geometry, floodplain_geometry, title: str, bounds: tuple[float, float, float, float] | None = None,
-    connector_axes: list[LineString] | None = None, waterbody_geometry=None,
+    path: Path,
+    polygons: list[Polygon],
+    feature_classes: list[str],
+    crs: Any,
+    river_geometry,
+    floodplain_geometry,
+    title: str,
+    bounds: tuple[float, float, float, float] | None = None,
+    connector_axes: list[LineString] | None = None,
+    waterbody_geometry=None,
 ) -> None:
     """Write a compact mesh-stage diagnostic using the same class palette."""
-    colours = {"rural": "#ECECEC", "urban": "#E6A0A1", "floodplain": "#8CC5E3", "river": "#0B81A2", "waterbody": "#2F80ED"}
+    colours = {
+        "rural": "#ECECEC",
+        "urban": "#E6A0A1",
+        "floodplain": "#8CC5E3",
+        "river": "#0B81A2",
+        "waterbody": "#2F80ED",
+    }
     fig, ax = plt.subplots(figsize=(10, 8))
     dense_full_domain = bounds is None and len(polygons) > 100_000
-    gpd.GeoDataFrame({"feature_class": feature_classes}, geometry=polygons, crs=crs).plot(
-        ax=ax, color=[colours[item] for item in feature_classes],
+    gpd.GeoDataFrame(
+        {"feature_class": feature_classes}, geometry=polygons, crs=crs
+    ).plot(
+        ax=ax,
+        color=[colours[item] for item in feature_classes],
         edgecolor=(0.1, 0.1, 0.1, 0.18) if dense_full_domain else "0.16",
         linewidth=0.05 if dense_full_domain else 0.35,
     )
     if not river_geometry.is_empty:
-        gpd.GeoSeries([river_geometry.boundary], crs=crs).plot(ax=ax, color="#082A54", linewidth=1.1)
+        gpd.GeoSeries([river_geometry.boundary], crs=crs).plot(
+            ax=ax, color="#082A54", linewidth=1.1
+        )
     if not floodplain_geometry.is_empty:
-        gpd.GeoSeries([floodplain_geometry.boundary], crs=crs).plot(ax=ax, color="#3594CC", linewidth=0.75, linestyle="--")
+        gpd.GeoSeries([floodplain_geometry.boundary], crs=crs).plot(
+            ax=ax, color="#3594CC", linewidth=0.75, linestyle="--"
+        )
     if waterbody_geometry is not None and not waterbody_geometry.is_empty:
-        gpd.GeoSeries([waterbody_geometry.boundary], crs=crs).plot(ax=ax, color="#0B3D91", linewidth=0.85)
+        gpd.GeoSeries([waterbody_geometry.boundary], crs=crs).plot(
+            ax=ax, color="#0B3D91", linewidth=0.85
+        )
     if connector_axes:
-        gpd.GeoSeries(connector_axes, crs=crs).plot(ax=ax, color="#9D2C00", linewidth=0.7, alpha=0.8)
-    present = [item for item in ("waterbody", "river", "floodplain", "urban", "rural") if item in set(feature_classes)]
+        gpd.GeoSeries(connector_axes, crs=crs).plot(
+            ax=ax, color="#9D2C00", linewidth=0.7, alpha=0.8
+        )
+    present = [
+        item
+        for item in ("waterbody", "river", "floodplain", "urban", "rural")
+        if item in set(feature_classes)
+    ]
     ax.legend(
-        handles=[Patch(facecolor=colours[item], edgecolor="0.2", label=item.capitalize()) for item in present],
-        loc="lower left", frameon=True, framealpha=0.9, fontsize=8,
+        handles=[
+            Patch(facecolor=colours[item], edgecolor="0.2", label=item.capitalize())
+            for item in present
+        ],
+        loc="lower left",
+        frameon=True,
+        framealpha=0.9,
+        fontsize=8,
     )
     ax.set_title(title, fontname="Helvetica", fontsize=14, pad=8)
     if bounds is not None:
-        ax.set_xlim(bounds[0], bounds[2]); ax.set_ylim(bounds[1], bounds[3])
-    ax.set_aspect("equal"); ax.set_axis_off()
+        ax.set_xlim(bounds[0], bounds[2])
+        ax.set_ylim(bounds[1], bounds[3])
+    ax.set_aspect("equal")
+    ax.set_axis_off()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=250, bbox_inches="tight")
     plt.close(fig)
@@ -3550,7 +4417,8 @@ def _build_hybrid_mesh(
 
     with rasterio.open(config.dem) as src:
         dem = src.read(1, masked=True).filled(np.nan).astype(np.float64)
-        profile = src.profile.copy(); transform, crs = src.transform, src.crs
+        profile = src.profile.copy()
+        transform, crs = src.transform, src.crs
         impervious = _aligned(config.impervious, src, 0.0)
         population = _aligned(config.population, src, 0.0)
         supplied_mask = _aligned(config.river_mask, src, np.nan)
@@ -3577,23 +4445,34 @@ def _build_hybrid_mesh(
         # cannot support a cell with the requested hydraulic minimum, so remove
         # them before Voronoi clipping rather than exporting boundary slivers.
         edge_filter = 0.5 * config.minimum_hydraulic_width_m
-        cleaned_domain = domain.buffer(-edge_filter, join_style="mitre").buffer(edge_filter, join_style="mitre")
+        cleaned_domain = domain.buffer(-edge_filter, join_style="mitre").buffer(
+            edge_filter, join_style="mitre"
+        )
         if not cleaned_domain.is_empty:
             domain = cleaned_domain.intersection(raster_domain)
         valid &= geometry_mask(
             [domain], out_shape=dem.shape, transform=transform, invert=True
         )
     waterbody_geometry = _vector_feature_geometry(
-        config.waterbody_vector, crs, domain, config.waterbody_layer,
+        config.waterbody_vector,
+        crs,
+        domain,
+        config.waterbody_layer,
     )
     waterbody = (
-        valid & geometry_mask([waterbody_geometry], out_shape=dem.shape, transform=transform, invert=True)
-        if not waterbody_geometry.is_empty else np.zeros_like(valid, dtype=bool)
+        valid
+        & geometry_mask(
+            [waterbody_geometry], out_shape=dem.shape, transform=transform, invert=True
+        )
+        if not waterbody_geometry.is_empty
+        else np.zeros_like(valid, dtype=bool)
     )
     mark("inputs_and_domain")
     has_supplied_direction = np.isfinite(supplied_direction).any()
     if _needs_d4_routing(config, has_supplied_direction):
-        accumulation, receiver = compute_d4_flow_accumulation(dem.astype("float32"), profile, nodata=np.nan)
+        accumulation, receiver = compute_d4_flow_accumulation(
+            dem.astype("float32"), profile, nodata=np.nan
+        )
     else:
         accumulation = None
         receiver = (
@@ -3603,7 +4482,15 @@ def _build_hybrid_mesh(
         )
     pixel_area_km2 = abs(transform.a * transform.e) / 1e6
     if config.river_source in {"hydrobathydem_d4", "hydrobathydem_d8"}:
-        river = valid & ~waterbody & ((supplied_mask > 0) if np.isfinite(supplied_mask).any() else (np.isfinite(width) & (width > 0)))
+        river = (
+            valid
+            & ~waterbody
+            & (
+                (supplied_mask > 0)
+                if np.isfinite(supplied_mask).any()
+                else (np.isfinite(width) & (width > 0))
+            )
+        )
         if not river.any():
             raise ValueError(
                 f"rivers.source={config.river_source!r} requires an aligned river_mask or positive river_width raster."
@@ -3616,11 +4503,25 @@ def _build_hybrid_mesh(
             )
     else:
         if accumulation is None:
-            raise AssertionError("D4 accumulation is required for derived river meshes.")
-        river = valid & ~waterbody & (accumulation * pixel_area_km2 >= config.minimum_upstream_area_km2)
+            raise AssertionError(
+                "D4 accumulation is required for derived river meshes."
+            )
+        river = (
+            valid
+            & ~waterbody
+            & (accumulation * pixel_area_km2 >= config.minimum_upstream_area_km2)
+        )
     if config.river_network is not None:
-        river |= valid & ~waterbody & _vector_line_mask(
-            config.river_network, crs, domain, dem.shape, transform,
+        river |= (
+            valid
+            & ~waterbody
+            & _vector_line_mask(
+                config.river_network,
+                crs,
+                domain,
+                dem.shape,
+                transform,
+            )
         )
     river_rows, river_cols = np.where(river)
     river_x, river_y = xy(transform, river_rows, river_cols, offset="center")
@@ -3636,7 +4537,9 @@ def _build_hybrid_mesh(
     # overbank corridors.
     if config.river_network is not None and config.river_source == "derive_d4":
         if reach is None:
-            raise AssertionError("Reach labels are required for vector river orientation.")
+            raise AssertionError(
+                "Reach labels are required for vector river orientation."
+            )
         river_records = _vector_river_records(
             config.river_network,
             config.river_width_field,
@@ -3657,7 +4560,9 @@ def _build_hybrid_mesh(
             config.river_width_smoothing_window_cells,
         )
         reach_orientation = {record[0]: record[3] for record in river_records}
-    physical_river_geometry = _physical_river_geometry(river_records).difference(waterbody_geometry).buffer(0)
+    physical_river_geometry = (
+        _physical_river_geometry(river_records).difference(waterbody_geometry).buffer(0)
+    )
     # The structured ribbon defines its own computational channel: the polygon
     # is the union of the cells that will exist, so no cell can be classified
     # river without being one.  The old buffered-centreline channel remains for
@@ -3672,25 +4577,38 @@ def _build_hybrid_mesh(
     if config.river_cell_style == "graded_rows":
         if config.river_network is not None and config.river_source == "derive_d4":
             reach_records = [
-                (reach_id, line, np.full(len(line.coords), reach_width, dtype=np.float64))
+                (
+                    reach_id,
+                    line,
+                    np.full(len(line.coords), reach_width, dtype=np.float64),
+                )
                 for reach_id, line, reach_width, _ in river_records
             ]
         else:
             reach_records = _river_reach_records(
-                river, receiver, transform, width,
+                river,
+                receiver,
+                transform,
+                width,
                 config.river_centerline_smoothing_iterations,
                 config.river_width_smoothing_window_cells,
             )
-        graded_channel_seeds, graded_bank_seeds, graded_band_extent_m = river_graded_seeds(
-            reach_records,
-            config.river_along_river_cell_length_m,
-            config.river_cross_river_target_width_m,
-            config.minimum_hydraulic_width_m,
-            max(config.background_width_m, config.urban_width_m, config.waterbody_target_width_m),
-            config.maximum_adjacent_size_ratio,
-            domain,
-            waterbody_geometry,
-            minimum_cell_scale_m=0.5 * config.minimum_hydraulic_width_m,
+        graded_channel_seeds, graded_bank_seeds, graded_band_extent_m = (
+            river_graded_seeds(
+                reach_records,
+                config.river_along_river_cell_length_m,
+                config.river_cross_river_target_width_m,
+                config.minimum_hydraulic_width_m,
+                max(
+                    config.background_width_m,
+                    config.urban_width_m,
+                    config.waterbody_target_width_m,
+                ),
+                config.maximum_adjacent_size_ratio,
+                domain,
+                waterbody_geometry,
+                minimum_cell_scale_m=0.5 * config.minimum_hydraulic_width_m,
+            )
         )
         if not len(graded_channel_seeds):
             raise ValueError(
@@ -3699,29 +4617,43 @@ def _build_hybrid_mesh(
             )
         # The channel polygon is now only used to classify finished cells; it is not
         # cut into anything, so it can keep the mapped-width definition.
-        river_geometry = _physical_river_geometry(
-            river_records, config.river_cross_river_target_width_m,
-        ).difference(waterbody_geometry).buffer(0)
+        river_geometry = (
+            _physical_river_geometry(
+                river_records,
+                config.river_cross_river_target_width_m,
+            )
+            .difference(waterbody_geometry)
+            .buffer(0)
+        )
     elif config.river_cell_style == "structured_strip":
         if config.river_network is not None and config.river_source == "derive_d4":
             reach_records = [
-                (reach_id, line, np.full(len(line.coords), reach_width, dtype=np.float64))
+                (
+                    reach_id,
+                    line,
+                    np.full(len(line.coords), reach_width, dtype=np.float64),
+                )
                 for reach_id, line, reach_width, _ in river_records
             ]
         else:
             reach_records = _river_reach_records(
-                river, receiver, transform, width,
+                river,
+                receiver,
+                transform,
+                width,
                 config.river_centerline_smoothing_iterations,
                 config.river_width_smoothing_window_cells,
             )
-        strip_cells, strip_attributes, strip_banks, strip_discarded_area_m2 = build_river_strip_mesh(
-            reach_records,
-            config.river_along_river_cell_length_m,
-            config.river_cross_river_target_width_m,
-            config.minimum_hydraulic_width_m,
-            domain,
-            waterbody_geometry,
-            minimum_cell_scale_m=0.5 * config.minimum_hydraulic_width_m,
+        strip_cells, strip_attributes, strip_banks, strip_discarded_area_m2 = (
+            build_river_strip_mesh(
+                reach_records,
+                config.river_along_river_cell_length_m,
+                config.river_cross_river_target_width_m,
+                config.minimum_hydraulic_width_m,
+                domain,
+                waterbody_geometry,
+                minimum_cell_scale_m=0.5 * config.minimum_hydraulic_width_m,
+            )
         )
         if not strip_cells:
             raise ValueError(
@@ -3731,10 +4663,16 @@ def _build_hybrid_mesh(
         river_geometry = unary_union(strip_cells).buffer(0)
     elif config.river_cell_style == "voronoi":
         river_geometry = (
-            _physical_river_geometry(river_records, config.river_cross_river_target_width_m)
-            if config.unresolved_policy == "none"
-            else physical_river_geometry
-        ).difference(waterbody_geometry).buffer(0)
+            (
+                _physical_river_geometry(
+                    river_records, config.river_cross_river_target_width_m
+                )
+                if config.unresolved_policy == "none"
+                else physical_river_geometry
+            )
+            .difference(waterbody_geometry)
+            .buffer(0)
+        )
     # A supplied design-flow mask supersedes HAND.  The external mask is an
     # input artifact with its own provenance, not an interpolation of HAND.
     # HAND remains the explicit fallback for legacy cases.
@@ -3743,45 +4681,88 @@ def _build_hybrid_mesh(
         floodplain = np.zeros_like(valid, dtype=bool)
     elif config.floodplain_vector is not None:
         vector = gpd.read_file(config.floodplain_vector).to_crs(crs)
-        supplied_floodplain_geometry = vector.geometry.union_all().intersection(domain).buffer(0)
-        supplied_floodplain_geometry = supplied_floodplain_geometry.difference(waterbody_geometry).buffer(0)
-        floodplain = valid & ~waterbody & geometry_mask([supplied_floodplain_geometry], out_shape=dem.shape, transform=transform, invert=True) & ~river
+        supplied_floodplain_geometry = (
+            vector.geometry.union_all().intersection(domain).buffer(0)
+        )
+        supplied_floodplain_geometry = supplied_floodplain_geometry.difference(
+            waterbody_geometry
+        ).buffer(0)
+        floodplain = (
+            valid
+            & ~waterbody
+            & geometry_mask(
+                [supplied_floodplain_geometry],
+                out_shape=dem.shape,
+                transform=transform,
+                invert=True,
+            )
+            & ~river
+        )
     elif config.floodplain_mask is not None:
         floodplain = valid & ~waterbody & (supplied_floodplain > 0) & ~river
     else:
         if hand is None or reach is None:
-            raise AssertionError("HAND and reach labels are required for fallback floodplain delineation.")
-        floodplain = valid & ~waterbody & (reach >= 0) & np.isfinite(hand) & (hand <= config.floodplain_hand_stage_m) & ~river
+            raise AssertionError(
+                "HAND and reach labels are required for fallback floodplain delineation."
+            )
+        floodplain = (
+            valid
+            & ~waterbody
+            & (reach >= 0)
+            & np.isfinite(hand)
+            & (hand <= config.floodplain_hand_stage_m)
+            & ~river
+        )
     # The source grid is 30 m.  A topology-preserving half-pixel simplify is a
     # mesh-interface operation, not a change to the selected HAND cells: it
     # removes only sub-cell D4 stair steps that otherwise make zero-length
     # breakline fragments.  The physical width remains controlled by the
     # mapped-width buffered centreline above.
     interface_tolerance = 0.5 * min(abs(transform.a), abs(transform.e))
-    physical_river_geometry = physical_river_geometry.simplify(interface_tolerance, preserve_topology=True)
+    physical_river_geometry = physical_river_geometry.simplify(
+        interface_tolerance, preserve_topology=True
+    )
     # A structured channel outline must keep every station vertex: those are the
     # exact points the background remnants have to meet for the interface to
     # pair up.  Only the buffered-centreline channel is simplified.
     if config.river_cell_style not in {"structured_strip"}:
-        river_geometry = river_geometry.simplify(interface_tolerance, preserve_topology=True)
-    waterbody_geometry = waterbody_geometry.simplify(2.0 * config.minimum_hydraulic_width_m, preserve_topology=True).buffer(0)
+        river_geometry = river_geometry.simplify(
+            interface_tolerance, preserve_topology=True
+        )
+    waterbody_geometry = waterbody_geometry.simplify(
+        2.0 * config.minimum_hydraulic_width_m, preserve_topology=True
+    ).buffer(0)
     floodplain_geometry = (
         Polygon()
         if not config.floodplain_enabled
         else exclusive_floodplain_geometry(
-            supplied_floodplain_geometry, river_geometry, waterbody_geometry,
+            supplied_floodplain_geometry,
+            river_geometry,
+            waterbody_geometry,
         )
         if supplied_floodplain_geometry is not None
         else exclusive_floodplain_geometry(
-            _mask_geometry(floodplain, transform), river_geometry, waterbody_geometry,
+            _mask_geometry(floodplain, transform),
+            river_geometry,
+            waterbody_geometry,
         ).simplify(interface_tolerance, preserve_topology=True)
     )
-    urban = valid & ((impervious >= config.impervious_threshold_percent) | (population >= config.population_threshold_per_km2))
+    urban = valid & (
+        (impervious >= config.impervious_threshold_percent)
+        | (population >= config.population_threshold_per_km2)
+    )
     if config.urban_buffer_m > 0 and urban.any():
-        urban |= distance_transform_edt(~urban, sampling=(abs(transform.e), abs(transform.a))) <= config.urban_buffer_m
+        urban |= (
+            distance_transform_edt(
+                ~urban, sampling=(abs(transform.e), abs(transform.a))
+            )
+            <= config.urban_buffer_m
+        )
     urban &= valid
     target = np.full(dem.shape, config.background_width_m, dtype=np.float64)
-    target[floodplain] = np.minimum(target[floodplain], config.floodplain_target_width_m)
+    target[floodplain] = np.minimum(
+        target[floodplain], config.floodplain_target_width_m
+    )
     target[urban] = np.minimum(target[urban], config.urban_width_m)
     target[waterbody] = config.waterbody_target_width_m
     # At least one 2-D strip is possible only at the DEM-scale floor.  Smaller
@@ -3791,7 +4772,9 @@ def _build_hybrid_mesh(
         if config.unresolved_policy == "none"
         else river & np.isfinite(width) & (width >= config.minimum_hydraulic_width_m)
     )
-    target[resolved_river] = np.minimum(target[resolved_river], config.river_cross_river_target_width_m)
+    target[resolved_river] = np.minimum(
+        target[resolved_river], config.river_cross_river_target_width_m
+    )
     if config.river_cell_style == "graded_rows" and resolved_river.any():
         # Record the graded band in the size field, not just in the seed layout.
         # The seeds already step 30 -> 60 -> 120 -> 200 m out from the bank, but
@@ -3804,7 +4787,11 @@ def _build_hybrid_mesh(
         previous = config.river_cross_river_target_width_m
         for row_width in graded_row_plan(
             config.river_cross_river_target_width_m,
-            max(config.background_width_m, config.urban_width_m, config.waterbody_target_width_m),
+            max(
+                config.background_width_m,
+                config.urban_width_m,
+                config.waterbody_target_width_m,
+            ),
             config.maximum_adjacent_size_ratio,
         ):
             edge += 0.5 * (previous + row_width)
@@ -3833,7 +4820,9 @@ def _build_hybrid_mesh(
             river_records,
             config.river_along_river_cell_length_m,
             config.river_cross_river_target_width_m,
-            0.0 if config.unresolved_policy == "none" else config.minimum_hydraulic_width_m,
+            0.0
+            if config.unresolved_policy == "none"
+            else config.minimum_hydraulic_width_m,
             config.minimum_hydraulic_width_m,
         )
     )
@@ -3851,44 +4840,81 @@ def _build_hybrid_mesh(
     if config.floodplain_align_to_flow and config.floodplain_direction is not None:
         floodplain_receiver = receiver_from_d4_direction(supplied_floodplain_direction)
         complete_axis = _complete_floodplain_connector_axis(
-            supplied_floodplain_axis > 0, floodplain_receiver, floodplain, transform,
+            supplied_floodplain_axis > 0,
+            floodplain_receiver,
+            floodplain,
+            transform,
             config.floodplain_cross_river_target_width_m,
         )
         _, _, connector_axes = _smoothed_floodplain_connector_tangents(
-            complete_axis, floodplain_receiver, transform, config.floodplain_along_river_cell_length_m,
+            complete_axis,
+            floodplain_receiver,
+            transform,
+            config.floodplain_along_river_cell_length_m,
         )
         floodplain_ribbon = _floodplain_connector_ribbon_seeds(
-            connector_axes, floodplain_geometry, floodplain, transform,
-            config.floodplain_along_river_cell_length_m, config.floodplain_cross_river_target_width_m,
+            connector_axes,
+            floodplain_geometry,
+            floodplain,
+            transform,
+            config.floodplain_along_river_cell_length_m,
+            config.floodplain_cross_river_target_width_m,
             config.minimum_hydraulic_width_m,
         )
     elif config.floodplain_align_to_flow:
         if reach is None:
-            raise AssertionError("Reach labels are required for flow-aligned floodplain seeds.")
+            raise AssertionError(
+                "Reach labels are required for flow-aligned floodplain seeds."
+            )
         floodplain_ribbon = _feature_lattice_seeds(
-            floodplain, reach, reach_orientation, transform,
+            floodplain,
+            reach,
+            reach_orientation,
+            transform,
             config.floodplain_along_river_cell_length_m,
-            config.floodplain_cross_river_target_width_m, floodplain_geometry,
+            config.floodplain_cross_river_target_width_m,
+            floodplain_geometry,
         )
     else:
         # Floodplain flow is genuinely two-dimensional.  A regular isotropic
         # lattice avoids artificial directional ribbons and leaves alignment
         # only where the mapped river supplies a defensible flow axis.
         floodplain_ribbon = _lattice(
-            domain.bounds, config.floodplain_target_width_m, floodplain, transform,
+            domain.bounds,
+            config.floodplain_target_width_m,
+            floodplain,
+            transform,
         )
     waterbody_ribbon = _lattice(
-        domain.bounds, config.waterbody_target_width_m, waterbody, transform,
+        domain.bounds,
+        config.waterbody_target_width_m,
+        waterbody,
+        transform,
     )
-    feature_geometry = unary_union([river_geometry, floodplain_geometry, waterbody_geometry])
+    feature_geometry = unary_union(
+        [river_geometry, floodplain_geometry, waterbody_geometry]
+    )
     if connector_axes:
-        connector_path = config.out_dir / "diagnostics" / "floodplain_connector_axes_smooth.gpkg"
+        connector_path = (
+            config.out_dir / "diagnostics" / "floodplain_connector_axes_smooth.gpkg"
+        )
         connector_path.parent.mkdir(parents=True, exist_ok=True)
         gpd.GeoDataFrame(
-            {"connector_id": range(len(connector_axes)), "orientation": "smooth_accumulation_axis"},
-            geometry=connector_axes, crs=crs,
+            {
+                "connector_id": range(len(connector_axes)),
+                "orientation": "smooth_accumulation_axis",
+            },
+            geometry=connector_axes,
+            crs=crs,
         ).to_file(connector_path, layer="connectors", driver="GPKG")
-    reservation = valid & geometry_mask([feature_geometry], out_shape=dem.shape, transform=transform, invert=True) if not feature_geometry.is_empty else np.zeros(dem.shape, dtype=bool)
+    reservation = (
+        valid
+        & geometry_mask(
+            [feature_geometry], out_shape=dem.shape, transform=transform, invert=True
+        )
+        if not feature_geometry.is_empty
+        else np.zeros(dem.shape, dtype=bool)
+    )
     # Leave one explicit transition band outside the locked feature core.  The
     # old code placed a 45 m urban lattice directly against a 30 m river seed,
     # which made arbitrary 1--5 m Voronoi faces.  The band is filled by the
@@ -3896,11 +4922,20 @@ def _build_hybrid_mesh(
     # The graded rows already fill the corridor out to ``graded_band_extent_m``, so
     # the background lattice must stay clear of all of it or the two interleave and
     # make exactly the short faces the grading exists to avoid.
-    transition_buffer = max(0.5 * config.floodplain_target_width_m, graded_band_extent_m)
-    transition_exclusion = valid & geometry_mask(
-        [feature_geometry.buffer(transition_buffer)],
-        out_shape=dem.shape, transform=transform, invert=True,
-    ) if not feature_geometry.is_empty else reservation
+    transition_buffer = max(
+        0.5 * config.floodplain_target_width_m, graded_band_extent_m
+    )
+    transition_exclusion = (
+        valid
+        & geometry_mask(
+            [feature_geometry.buffer(transition_buffer)],
+            out_shape=dem.shape,
+            transform=transform,
+            invert=True,
+        )
+        if not feature_geometry.is_empty
+        else reservation
+    )
     hard_boundary_parts = []
     if config.enforce_feature_boundaries or config.enforce_river_boundaries:
         hard_boundary_parts.append(river_geometry.boundary)
@@ -3908,7 +4943,9 @@ def _build_hybrid_mesh(
         hard_boundary_parts.append(floodplain_geometry.boundary)
     if config.enforce_waterbody_boundaries:
         hard_boundary_parts.append(waterbody_geometry.boundary)
-    hard_boundaries = unary_union(hard_boundary_parts) if hard_boundary_parts else LineString()
+    hard_boundaries = (
+        unary_union(hard_boundary_parts) if hard_boundary_parts else LineString()
+    )
     support = (
         _boundary_support_seeds(
             hard_boundaries,
@@ -3916,14 +4953,18 @@ def _build_hybrid_mesh(
             offset_m=0.5 * config.floodplain_target_width_m,
             domain=domain,
         )
-        if not hard_boundaries.is_empty else np.empty((0, 2), dtype=np.float64)
+        if not hard_boundaries.is_empty
+        else np.empty((0, 2), dtype=np.float64)
     )
     # Feature seeds already occupy both sides of the river/floodplain internal
     # boundary.  Keep support sites only in the outer transition zone; adding
     # them 15 m inside a 30 m river cell was the direct source of the tiny
     # generator separations seen in the rejected candidate.
     if len(support):
-        support = np.asarray([point for point in support if not feature_geometry.covers(Point(point))], dtype=np.float64)
+        support = np.asarray(
+            [point for point in support if not feature_geometry.covers(Point(point))],
+            dtype=np.float64,
+        )
     # At confluences, a D4 segment, a connector ribbon, and a boundary-support
     # site can otherwise land almost on top of one another.  Lock the physical
     # river first, then retain only floodplain/support sites that meet the same
@@ -3934,33 +4975,93 @@ def _build_hybrid_mesh(
     if len(river_bank_support):
         river_bank_support = np.asarray(
             [
-                point for point in _minimum_separated(river_bank_support, river_seed_floor)
-                if domain.covers(Point(point)) and not waterbody_geometry.covers(Point(point))
+                point
+                for point in _minimum_separated(river_bank_support, river_seed_floor)
+                if domain.covers(Point(point))
+                and not waterbody_geometry.covers(Point(point))
             ],
             dtype=np.float64,
         ).reshape(-1, 2)
-        river_bank_support = _drop_near(river_bank_support, river_ribbon, river_seed_floor)
+        river_bank_support = _drop_near(
+            river_bank_support, river_ribbon, river_seed_floor
+        )
     river_support_blockers = (
         np.vstack([item for item in (river_ribbon, river_bank_support) if len(item)])
-        if any(len(item) for item in (river_ribbon, river_bank_support)) else np.empty((0, 2), dtype=np.float64)
+        if any(len(item) for item in (river_ribbon, river_bank_support))
+        else np.empty((0, 2), dtype=np.float64)
     )
     floodplain_ribbon = _drop_near(
         _minimum_separated(floodplain_ribbon, config.minimum_hydraulic_width_m),
-        river_support_blockers, config.minimum_hydraulic_width_m,
+        river_support_blockers,
+        config.minimum_hydraulic_width_m,
     )
     waterbody_ribbon = _drop_near(
         _minimum_separated(waterbody_ribbon, config.minimum_hydraulic_width_m),
-        np.vstack([item for item in (river_ribbon, river_bank_support, floodplain_ribbon) if len(item)])
-        if any(len(item) for item in (river_ribbon, river_bank_support, floodplain_ribbon)) else np.empty((0, 2), dtype=np.float64),
+        np.vstack(
+            [
+                item
+                for item in (river_ribbon, river_bank_support, floodplain_ribbon)
+                if len(item)
+            ]
+        )
+        if any(
+            len(item) for item in (river_ribbon, river_bank_support, floodplain_ribbon)
+        )
+        else np.empty((0, 2), dtype=np.float64),
         config.minimum_hydraulic_width_m,
     )
     support = _drop_near(
         _minimum_separated(support, config.minimum_hydraulic_width_m),
-        np.vstack([item for item in (river_ribbon, river_bank_support, floodplain_ribbon, waterbody_ribbon) if len(item)])
-        if any(len(item) for item in (river_ribbon, river_bank_support, floodplain_ribbon, waterbody_ribbon)) else np.empty((0, 2), dtype=np.float64),
+        np.vstack(
+            [
+                item
+                for item in (
+                    river_ribbon,
+                    river_bank_support,
+                    floodplain_ribbon,
+                    waterbody_ribbon,
+                )
+                if len(item)
+            ]
+        )
+        if any(
+            len(item)
+            for item in (
+                river_ribbon,
+                river_bank_support,
+                floodplain_ribbon,
+                waterbody_ribbon,
+            )
+        )
+        else np.empty((0, 2), dtype=np.float64),
         config.minimum_hydraulic_width_m,
     )
-    feature_seeds = np.vstack([item for item in (river_ribbon, river_bank_support, floodplain_ribbon, waterbody_ribbon, support) if len(item)]) if any(len(item) for item in (river_ribbon, river_bank_support, floodplain_ribbon, waterbody_ribbon, support)) else np.empty((0, 2), dtype=np.float64)
+    feature_seeds = (
+        np.vstack(
+            [
+                item
+                for item in (
+                    river_ribbon,
+                    river_bank_support,
+                    floodplain_ribbon,
+                    waterbody_ribbon,
+                    support,
+                )
+                if len(item)
+            ]
+        )
+        if any(
+            len(item)
+            for item in (
+                river_ribbon,
+                river_bank_support,
+                floodplain_ribbon,
+                waterbody_ribbon,
+                support,
+            )
+        )
+        else np.empty((0, 2), dtype=np.float64)
+    )
     # 3. Fill the remaining urban/rural domain with the graded target field.
     # Every level is used (for example 45 -> 90 -> 120 m), so the 2:1 transition
     # is explicit rather than a binary refinement mask.
@@ -3969,8 +5070,10 @@ def _build_hybrid_mesh(
     blockers = feature_seeds
     for spacing in np.sort(levels):
         candidates = _lattice(
-            (xmin, ymin, xmax, ymax), float(spacing),
-            valid & ~transition_exclusion & np.isclose(target, spacing), transform,
+            (xmin, ymin, xmax, ymax),
+            float(spacing),
+            valid & ~transition_exclusion & np.isclose(target, spacing),
+            transform,
         )
         candidates = _drop_near(candidates, blockers, config.minimum_hydraulic_width_m)
         lattice_seeds.append(candidates)
@@ -3994,7 +5097,8 @@ def _build_hybrid_mesh(
     if points_only:
         origins = np.full(len(points), "background", dtype=object)
         source_ids = np.asarray(
-            [f"background:{index}" for index in range(len(points))], dtype=object,
+            [f"background:{index}" for index in range(len(points))],
+            dtype=object,
         )
         point_lookup = {tuple(point): index for index, point in enumerate(points)}
         for origin, source, candidates in (
@@ -4031,7 +5135,9 @@ def _build_hybrid_mesh(
         if len(np.unique(points, axis=0)) != len(points):
             raise ValueError("Active computation-point coordinates must be unique.")
         if not np.all(covers(domain, shapely_points(points))):
-            raise ValueError("All active computation points must lie inside the mesh domain.")
+            raise ValueError(
+                "All active computation points must lie inside the mesh domain."
+            )
         protected_core = np.flatnonzero(computation_points.locked[active])
     if points.shape[0] > config.max_seed_count:
         raise ValueError(
@@ -4040,46 +5146,83 @@ def _build_hybrid_mesh(
         )
     mark("seed_generation")
     points, polygons, quality_repair_iterations = _repair_short_cells(
-        points, domain, config.minimum_hydraulic_width_m, max_iterations=config.quality_repair_max_iterations,
-        protected_seed_count=0, target=target,
-        transform=transform, minimum_face_length_factor=config.minimum_face_length_factor,
+        points,
+        domain,
+        config.minimum_hydraulic_width_m,
+        max_iterations=config.quality_repair_max_iterations,
+        protected_seed_count=0,
+        target=target,
+        transform=transform,
+        minimum_face_length_factor=config.minimum_face_length_factor,
         minimum_center_distance_factor=config.minimum_center_distance_factor,
         protected_seed_indices=protected_core,
     )
     mark("initial_voronoi_and_seed_repair")
     step5_classes = _feature_classes(
-        polygons, river_geometry, floodplain_geometry, urban, transform, river_class_points,
+        polygons,
+        river_geometry,
+        floodplain_geometry,
+        urban,
+        transform,
+        river_class_points,
         waterbody_geometry=waterbody_geometry,
     )
     step5_figure = config.out_dir / "diagnostics" / "mesh_step5_global_voronoi.png"
-    if config.write_diagnostics:
+    if config.write_diagnostics and config.write_intermediate_diagnostics:
         _write_mesh_class_figure(
             step5_figure,
-            polygons, step5_classes, crs, river_geometry, floodplain_geometry,
+            polygons,
+            step5_classes,
+            crs,
+            river_geometry,
+            floodplain_geometry,
             "Step 5 — river, urban, and rural Voronoi mesh"
             if not config.floodplain_enabled
             else "Step 5 — river-aligned and isotropic floodplain Voronoi mesh",
-            connector_axes=connector_axes, waterbody_geometry=waterbody_geometry,
+            connector_axes=connector_axes,
+            waterbody_geometry=waterbody_geometry,
         )
         if config.diagnostic_window is not None:
-            diagnostic = gpd.read_file(config.diagnostic_window).to_crs(crs).geometry.union_all()
-            detail_indices = [index for index, polygon in enumerate(polygons) if polygon.intersects(diagnostic)]
+            diagnostic = (
+                gpd.read_file(config.diagnostic_window).to_crs(crs).geometry.union_all()
+            )
+            detail_indices = [
+                index
+                for index, polygon in enumerate(polygons)
+                if polygon.intersects(diagnostic)
+            ]
             _write_mesh_class_figure(
                 config.out_dir / "diagnostics" / "mesh_step5_detail.png",
-                [polygons[index] for index in detail_indices], [step5_classes[index] for index in detail_indices], crs,
-                river_geometry.intersection(diagnostic), floodplain_geometry.intersection(diagnostic),
-                "Step 5 — detailed global Voronoi candidate", diagnostic.bounds, connector_axes,
+                [polygons[index] for index in detail_indices],
+                [step5_classes[index] for index in detail_indices],
+                crs,
+                river_geometry.intersection(diagnostic),
+                floodplain_geometry.intersection(diagnostic),
+                "Step 5 — detailed global Voronoi candidate",
+                diagnostic.bounds,
+                connector_axes,
                 waterbody_geometry.intersection(diagnostic),
             )
         if config.diagnostic_windows is not None:
             windows = gpd.read_file(config.diagnostic_windows).to_crs(crs)
             for index, geometry in enumerate(windows.geometry, start=1):
-                detail_indices = [item for item, polygon in enumerate(polygons) if polygon.intersects(geometry)]
+                detail_indices = [
+                    item
+                    for item, polygon in enumerate(polygons)
+                    if polygon.intersects(geometry)
+                ]
                 _write_mesh_class_figure(
-                    config.out_dir / "diagnostics" / f"mesh_step5_region_{index:02d}.png",
-                    [polygons[item] for item in detail_indices], [step5_classes[item] for item in detail_indices], crs,
-                    river_geometry.intersection(geometry), floodplain_geometry.intersection(geometry),
-                    f"Step 5 — mesh quality region {index}", geometry.bounds, connector_axes,
+                    config.out_dir
+                    / "diagnostics"
+                    / f"mesh_step5_region_{index:02d}.png",
+                    [polygons[item] for item in detail_indices],
+                    [step5_classes[item] for item in detail_indices],
+                    crs,
+                    river_geometry.intersection(geometry),
+                    floodplain_geometry.intersection(geometry),
+                    f"Step 5 — mesh quality region {index}",
+                    geometry.bounds,
+                    connector_axes,
                     waterbody_geometry.intersection(geometry),
                 )
     mark("step5_classification_and_diagnostics")
@@ -4094,7 +5237,9 @@ def _build_hybrid_mesh(
     # result is conforming; cells are classified only after this operation.
     if not hard_boundaries.is_empty:
         polygons = _split_by_feature_boundaries(
-            polygons, hard_boundaries, 2.0 * config.minimum_hydraulic_width_m ** 2,
+            polygons,
+            hard_boundaries,
+            2.0 * config.minimum_hydraulic_width_m**2,
         )
     if config.enforce_waterbody_boundaries and not waterbody_geometry.is_empty:
         # A reservoir shoreline is a hard constraint, not a preference.
@@ -4105,21 +5250,34 @@ def _build_hybrid_mesh(
         # wholly dry. The slivers this creates are then merged, but the merge groups
         # below keep them on their own side of the shore, so the constraint holds.
         polygons = _clip_cells_to_feature_polygon(polygons, waterbody_geometry, 0.0)
-    if config.unresolved_policy == "none" and config.river_cell_style != "structured_strip":
+    if (
+        config.unresolved_policy == "none"
+        and config.river_cell_style != "structured_strip"
+    ):
         polygons = _clip_cells_to_feature_polygon(
-            polygons, river_geometry, 0.25 * config.minimum_hydraulic_width_m ** 2,
+            polygons,
+            river_geometry,
+            0.25 * config.minimum_hydraulic_width_m**2,
         )
+
     def classify_current_polygons(current: list[Polygon]) -> list[str]:
         current_tree = STRtree(current)
         return _fraction_refined_feature_classes(
             _feature_classes(
-                current, river_geometry, floodplain_geometry, urban, transform, river_class_points,
+                current,
+                river_geometry,
+                floodplain_geometry,
+                urban,
+                transform,
+                river_class_points,
                 waterbody_geometry=waterbody_geometry,
             ),
             # The ribbon cells are the channel's own disjoint decomposition, so
             # passing them keeps both overlay operands small; querying the merged
             # 1,400 km channel instead made this call dominate the build.
-            _geometry_area_fractions(current, river_geometry, current_tree, strip_cells),
+            _geometry_area_fractions(
+                current, river_geometry, current_tree, strip_cells
+            ),
             _geometry_area_fractions(current, floodplain_geometry, current_tree),
             _geometry_area_fractions(current, waterbody_geometry, current_tree),
         )
@@ -4132,7 +5290,10 @@ def _build_hybrid_mesh(
     short_face_merges = 0
     for _ in range(config.quality_repair_max_iterations):
         repair_qa = _edge_quality(
-            polygons, points, target, transform,
+            polygons,
+            points,
+            target,
+            transform,
             config.minimum_face_length_factor * config.minimum_hydraulic_width_m,
             config.minimum_center_distance_factor * config.minimum_hydraulic_width_m,
         )
@@ -4152,13 +5313,21 @@ def _build_hybrid_mesh(
             break
         short_face_merges += merged
         feature_classes = _feature_classes(
-            polygons, river_geometry, floodplain_geometry, urban, transform, river_class_points,
+            polygons,
+            river_geometry,
+            floodplain_geometry,
+            urban,
+            transform,
+            river_class_points,
             waterbody_geometry=waterbody_geometry,
         )
     cross_feature_short_face_merges = 0
     for _ in range(config.quality_repair_max_iterations):
         repair_qa = _edge_quality(
-            polygons, points, target, transform,
+            polygons,
+            points,
+            target,
+            transform,
             config.minimum_face_length_factor * config.minimum_hydraulic_width_m,
             config.minimum_center_distance_factor * config.minimum_hydraulic_width_m,
         )
@@ -4176,7 +5345,12 @@ def _build_hybrid_mesh(
             break
         cross_feature_short_face_merges += merged
         feature_classes = _feature_classes(
-            polygons, river_geometry, floodplain_geometry, urban, transform, river_class_points,
+            polygons,
+            river_geometry,
+            floodplain_geometry,
+            urban,
+            transform,
+            river_class_points,
             waterbody_geometry=waterbody_geometry,
         )
     mark("post_split_quality_repair")
@@ -4184,20 +5358,33 @@ def _build_hybrid_mesh(
     # rejects it, this is the evidence needed to diagnose the problematic
     # transition geometry; it is not a model-ready mesh artifact.
     final_figure = config.out_dir / "diagnostics" / "mesh_step6_final.png"
-    if config.write_diagnostics:
+    if config.write_diagnostics and config.write_intermediate_diagnostics:
         _write_mesh_class_figure(
             final_figure,
-            polygons, feature_classes, crs, river_geometry, floodplain_geometry,
+            polygons,
+            feature_classes,
+            crs,
+            river_geometry,
+            floodplain_geometry,
             "Final Pune adaptive Voronoi mesh",
             waterbody_geometry=waterbody_geometry,
         )
         if config.diagnostic_window is not None:
-            diagnostic = gpd.read_file(config.diagnostic_window).to_crs(crs).geometry.union_all()
-            detail_indices = [index for index, polygon in enumerate(polygons) if polygon.intersects(diagnostic)]
+            diagnostic = (
+                gpd.read_file(config.diagnostic_window).to_crs(crs).geometry.union_all()
+            )
+            detail_indices = [
+                index
+                for index, polygon in enumerate(polygons)
+                if polygon.intersects(diagnostic)
+            ]
             _write_mesh_class_figure(
                 config.out_dir / "diagnostics" / "mesh_step6_final_detail.png",
-                [polygons[index] for index in detail_indices], [feature_classes[index] for index in detail_indices], crs,
-                river_geometry.intersection(diagnostic), floodplain_geometry.intersection(diagnostic),
+                [polygons[index] for index in detail_indices],
+                [feature_classes[index] for index in detail_indices],
+                crs,
+                river_geometry.intersection(diagnostic),
+                floodplain_geometry.intersection(diagnostic),
                 "Final adaptive mesh — river, urban, and rural cells"
                 if not config.floodplain_enabled
                 else "Final adaptive mesh — river, floodplain, urban, and rural cells",
@@ -4207,26 +5394,44 @@ def _build_hybrid_mesh(
         if config.diagnostic_windows is not None:
             windows = gpd.read_file(config.diagnostic_windows).to_crs(crs)
             for index, geometry in enumerate(windows.geometry, start=1):
-                detail_indices = [item for item, polygon in enumerate(polygons) if polygon.intersects(geometry)]
+                detail_indices = [
+                    item
+                    for item, polygon in enumerate(polygons)
+                    if polygon.intersects(geometry)
+                ]
                 _write_mesh_class_figure(
-                    config.out_dir / "diagnostics" / f"mesh_step6_final_region_{index:02d}.png",
-                    [polygons[item] for item in detail_indices], [feature_classes[item] for item in detail_indices], crs,
-                    river_geometry.intersection(geometry), floodplain_geometry.intersection(geometry),
-                    f"Final adaptive mesh — region {index}", geometry.bounds,
+                    config.out_dir
+                    / "diagnostics"
+                    / f"mesh_step6_final_region_{index:02d}.png",
+                    [polygons[item] for item in detail_indices],
+                    [feature_classes[item] for item in detail_indices],
+                    crs,
+                    river_geometry.intersection(geometry),
+                    floodplain_geometry.intersection(geometry),
+                    f"Final adaptive mesh — region {index}",
+                    geometry.bounds,
                     waterbody_geometry=waterbody_geometry.intersection(geometry),
                 )
     mark("step6_diagnostics")
     small_cell_agglomerations = 0
     for _ in range(config.quality_repair_max_iterations):
         polygon_objects = np.asarray(polygons, dtype=object)
-        preflight_scale = 2.0 * np.asarray([item.area for item in polygon_objects]) / np.maximum(
-            np.asarray([item.length for item in polygon_objects]), 1e-12,
+        preflight_scale = (
+            2.0
+            * np.asarray([item.area for item in polygon_objects])
+            / np.maximum(
+                np.asarray([item.length for item in polygon_objects]),
+                1e-12,
+            )
         )
         bad = np.flatnonzero(preflight_scale < 0.5 * config.minimum_hydraulic_width_m)
         if not len(bad):
             break
         repair_pairs = _undersized_cell_repair_pairs(
-            polygons, bad, feature_classes, same_class_only=False,
+            polygons,
+            bad,
+            feature_classes,
+            same_class_only=False,
         )
         polygons, merged = _agglomerate_short_face_cells(
             polygons,
@@ -4241,7 +5446,8 @@ def _build_hybrid_mesh(
             polygons, merged = _agglomerate_short_face_cells(
                 polygons,
                 config.minimum_face_length_factor * config.minimum_hydraulic_width_m,
-                config.minimum_center_distance_factor * config.minimum_hydraulic_width_m,
+                config.minimum_center_distance_factor
+                * config.minimum_hydraulic_width_m,
                 0.5 * config.minimum_hydraulic_width_m,
                 max_merges=max(len(bad), 1),
                 classes=None,
@@ -4250,13 +5456,21 @@ def _build_hybrid_mesh(
             break
         small_cell_agglomerations += merged
         feature_classes = _feature_classes(
-            polygons, river_geometry, floodplain_geometry, urban, transform, river_class_points,
+            polygons,
+            river_geometry,
+            floodplain_geometry,
+            urban,
+            transform,
+            river_class_points,
             waterbody_geometry=waterbody_geometry,
         )
     residual_face_agglomerations = 0
     for _ in range(config.quality_repair_max_iterations):
         preflight_edge_qa = _edge_quality(
-            polygons, points, target, transform,
+            polygons,
+            points,
+            target,
+            transform,
             config.minimum_face_length_factor * config.minimum_hydraulic_width_m,
             config.minimum_center_distance_factor * config.minimum_hydraulic_width_m,
         )
@@ -4278,7 +5492,12 @@ def _build_hybrid_mesh(
             break
         residual_face_agglomerations += merged
         feature_classes = _feature_classes(
-            polygons, river_geometry, floodplain_geometry, urban, transform, river_class_points,
+            polygons,
+            river_geometry,
+            floodplain_geometry,
+            urban,
+            transform,
+            river_class_points,
             waterbody_geometry=waterbody_geometry,
         )
     # 5. Swap the structured ribbon in for the channel corridor of the
@@ -4297,11 +5516,16 @@ def _build_hybrid_mesh(
     conformity_repair_rounds = 0
     cross_feature_residual_merges = 0
     background_sliver_merges = 0
-    minimum_face_length_m = config.minimum_face_length_factor * config.minimum_hydraulic_width_m
+    minimum_face_length_m = (
+        config.minimum_face_length_factor * config.minimum_hydraulic_width_m
+    )
     if config.river_cell_style == "structured_strip":
         polygons, _ = substitute_river_strip(polygons, river_geometry, strip_cells)
         polygons, repair = conform_and_repair_cells(
-            polygons, minimum_face_length_m, 0.5 * config.minimum_hydraulic_width_m, domain,
+            polygons,
+            minimum_face_length_m,
+            0.5 * config.minimum_hydraulic_width_m,
+            domain,
         )
         if progress:
             print(f"[mesh]   repair {repair}", flush=True)
@@ -4328,20 +5552,27 @@ def _build_hybrid_mesh(
         previous_defect_count: tuple[int, int] | None = None
         for _ in range(config.quality_repair_max_iterations):
             polygon_objects = np.asarray(polygons, dtype=object)
-            scale = 2.0 * np.asarray([item.area for item in polygon_objects]) / np.maximum(
-                np.asarray([item.length for item in polygon_objects]), 1e-12,
+            scale = (
+                2.0
+                * np.asarray([item.area for item in polygon_objects])
+                / np.maximum(
+                    np.asarray([item.length for item in polygon_objects]),
+                    1e-12,
+                )
             )
             repair_qa = _edge_quality(
-                polygons, points, target, transform,
+                polygons,
+                points,
+                target,
+                transform,
                 config.minimum_face_length_factor * config.minimum_hydraulic_width_m,
-                config.minimum_center_distance_factor * config.minimum_hydraulic_width_m,
+                config.minimum_center_distance_factor
+                * config.minimum_hydraulic_width_m,
             )
             bad = np.flatnonzero(scale < 0.5 * config.minimum_hydraulic_width_m)
             if not len(bad) and not len(repair_qa["bad_owners"]):
                 break
-            protected_groups = [
-                item for item in _merge_group_keys(feature_classes)
-            ]
+            protected_groups = [item for item in _merge_group_keys(feature_classes)]
             defect_count = (len(repair_qa["bad_owners"]), len(bad))
             stalled_iterations = (
                 stalled_iterations + 1 if defect_count == previous_defect_count else 0
@@ -4360,12 +5591,19 @@ def _build_hybrid_mesh(
                     flush=True,
                 )
             groups = [
-                item for item in (
+                item
+                for item in (
                     repair_qa["bad_owners"],
-                    _undersized_cell_repair_pairs(polygons, bad, protected_groups, same_class_only=True)
-                    if len(bad) else np.empty((0, 2), dtype=np.int64),
-                    rerouted_repair_pairs(polygons, repair_qa["bad_owners"], protected_groups, "river"),
-                ) if len(item)
+                    _undersized_cell_repair_pairs(
+                        polygons, bad, protected_groups, same_class_only=True
+                    )
+                    if len(bad)
+                    else np.empty((0, 2), dtype=np.int64),
+                    rerouted_repair_pairs(
+                        polygons, repair_qa["bad_owners"], protected_groups, "river"
+                    ),
+                )
+                if len(item)
             ]
             if not groups:
                 break
@@ -4389,7 +5627,8 @@ def _build_hybrid_mesh(
             polygons, merged = _agglomerate_short_face_cells(
                 polygons,
                 config.minimum_face_length_factor * config.minimum_hydraulic_width_m,
-                config.minimum_center_distance_factor * config.minimum_hydraulic_width_m,
+                config.minimum_center_distance_factor
+                * config.minimum_hydraulic_width_m,
                 0.5 * config.minimum_hydraulic_width_m,
                 max_merges=len(candidate_pairs),
                 classes=None if escalated else protected_groups,
@@ -4414,7 +5653,10 @@ def _build_hybrid_mesh(
             background_sliver_merges += merged
             mark("background_sliver_merge")
             polygons, repair = conform_and_repair_cells(
-                polygons, minimum_face_length_m, 0.5 * config.minimum_hydraulic_width_m, domain,
+                polygons,
+                minimum_face_length_m,
+                0.5 * config.minimum_hydraulic_width_m,
+                domain,
                 classes=list(feature_classes),
             )
             if progress:
@@ -4433,7 +5675,10 @@ def _build_hybrid_mesh(
             mark("background_sliver_classify")
     else:
         polygons, repair = conform_and_repair_cells(
-            polygons, minimum_face_length_m, 0.5 * config.minimum_hydraulic_width_m, domain,
+            polygons,
+            minimum_face_length_m,
+            0.5 * config.minimum_hydraulic_width_m,
+            domain,
         )
         hanging_nodes_inserted += repair["inserted"]
         hanging_nodes_snapped += repair["snapped"]
@@ -4447,18 +5692,28 @@ def _build_hybrid_mesh(
         feature_classes = classify_current_polygons(polygons)
     mark("river_strip_substitution")
     preflight_edge_qa = _edge_quality(
-        polygons, points, target, transform,
+        polygons,
+        points,
+        target,
+        transform,
         config.minimum_face_length_factor * config.minimum_hydraulic_width_m,
         config.minimum_center_distance_factor * config.minimum_hydraulic_width_m,
     )
     polygon_objects = np.asarray(polygons, dtype=object)
-    preflight_scale = 2.0 * np.asarray([item.area for item in polygon_objects]) / np.maximum(
-        np.asarray([item.length for item in polygon_objects]), 1e-12,
+    preflight_scale = (
+        2.0
+        * np.asarray([item.area for item in polygon_objects])
+        / np.maximum(
+            np.asarray([item.length for item in polygon_objects]),
+            1e-12,
+        )
     )
     mark("preflight_quality")
     if preflight_scale.min() < 0.5 * config.minimum_hydraulic_width_m:
         bad = np.flatnonzero(preflight_scale < 0.5 * config.minimum_hydraulic_width_m)
-        bad_path = config.out_dir / "diagnostics" / "mesh_step6_bad_control_volumes.gpkg"
+        bad_path = (
+            config.out_dir / "diagnostics" / "mesh_step6_bad_control_volumes.gpkg"
+        )
         bad_path.parent.mkdir(parents=True, exist_ok=True)
         gpd.GeoDataFrame(
             {
@@ -4466,7 +5721,8 @@ def _build_hybrid_mesh(
                 "cfl_width_m": preflight_scale[bad],
                 "feature_class": [feature_classes[index] for index in bad],
             },
-            geometry=[polygons[index] for index in bad], crs=crs,
+            geometry=[polygons[index] for index in bad],
+            crs=crs,
         ).to_file(bad_path, layer="bad_control_volumes", driver="GPKG")
         raise ValueError(
             "Mesh quality failed: minimum hydraulic cell scale is "
@@ -4474,7 +5730,10 @@ def _build_hybrid_mesh(
             f"{0.5 * config.minimum_hydraulic_width_m:.3f} m floor. "
             f"See {bad_path} for the {len(bad)} rejected control volumes."
         )
-    if preflight_edge_qa["short_internal_face_count"] or preflight_edge_qa["close_internal_center_count"]:
+    if (
+        preflight_edge_qa["short_internal_face_count"]
+        or preflight_edge_qa["close_internal_center_count"]
+    ):
         bad = np.unique(preflight_edge_qa["bad_owners"])
         bad_path = config.out_dir / "diagnostics" / "mesh_step6_bad_faces.gpkg"
         bad_path.parent.mkdir(parents=True, exist_ok=True)
@@ -4483,7 +5742,8 @@ def _build_hybrid_mesh(
                 "face_id": bad,
                 "feature_class": [feature_classes[index] for index in bad],
             },
-            geometry=[polygons[index] for index in bad], crs=crs,
+            geometry=[polygons[index] for index in bad],
+            crs=crs,
         ).to_file(bad_path, layer="bad_faces", driver="GPKG")
         # The owner list alone does not say which interface failed or why.  Write
         # the offending pairs with their face length and centre distance so the
@@ -4496,10 +5756,16 @@ def _build_hybrid_mesh(
         # the whole perimeter, not the offending segment.
         pair_geometry = []
         pair_rows: dict[str, list[Any]] = {
-            "owner": [], "neighbour": [], "owner_class": [], "neighbour_class": [],
-            "shared_face_length_m": [], "center_distance_m": [],
+            "owner": [],
+            "neighbour": [],
+            "owner_class": [],
+            "neighbour_class": [],
+            "shared_face_length_m": [],
+            "center_distance_m": [],
         }
-        for left, right in np.unique(np.sort(preflight_edge_qa["bad_owners"], axis=1), axis=0):
+        for left, right in np.unique(
+            np.sort(preflight_edge_qa["bad_owners"], axis=1), axis=0
+        ):
             left, right = int(left), int(right)
             shared = polygons[left].intersection(polygons[right])
             pair_rows["owner"].append(left)
@@ -4514,22 +5780,42 @@ def _build_hybrid_mesh(
             )
             pair_geometry.append(polygons[left])
         gpd.GeoDataFrame(pair_rows, geometry=pair_geometry, crs=crs).to_file(
-            bad_path, layer="bad_face_pairs", driver="GPKG",
+            bad_path,
+            layer="bad_face_pairs",
+            driver="GPKG",
         )
         rejected_path = config.out_dir / "reports" / "hybrid_mesh_qa_preflight.json"
         rejected_path.parent.mkdir(parents=True, exist_ok=True)
-        rejected_path.write_text(json.dumps({
-            "status": "step6_preflight_rejected",
-            "cells": len(polygons),
-            "generation_time_s": perf_counter() - started_at,
-            "quality_repair_iterations": quality_repair_iterations,
-            "short_face_agglomerations": short_face_merges,
-            "cross_feature_short_face_agglomerations": cross_feature_short_face_merges,
-            "small_cell_agglomerations": small_cell_agglomerations,
-            "residual_face_agglomerations": residual_face_agglomerations,
-            "timings_s": {key: round(value, 6) for key, value in stage_times.items()},
-            **{key: value for key, value in preflight_edge_qa.items() if key not in {"bad_owners", "short_owners", "face_seed", "face_target_m"}},
-        }, indent=2), encoding="utf-8")
+        rejected_path.write_text(
+            json.dumps(
+                {
+                    "status": "step6_preflight_rejected",
+                    "cells": len(polygons),
+                    "generation_time_s": perf_counter() - started_at,
+                    "quality_repair_iterations": quality_repair_iterations,
+                    "short_face_agglomerations": short_face_merges,
+                    "cross_feature_short_face_agglomerations": cross_feature_short_face_merges,
+                    "small_cell_agglomerations": small_cell_agglomerations,
+                    "residual_face_agglomerations": residual_face_agglomerations,
+                    "timings_s": {
+                        key: round(value, 6) for key, value in stage_times.items()
+                    },
+                    **{
+                        key: value
+                        for key, value in preflight_edge_qa.items()
+                        if key
+                        not in {
+                            "bad_owners",
+                            "short_owners",
+                            "face_seed",
+                            "face_target_m",
+                        }
+                    },
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         raise ValueError(
             "Mesh quality failed after local repair: "
             f"{preflight_edge_qa['short_internal_face_count']} internal faces are shorter than "
@@ -4540,20 +5826,38 @@ def _build_hybrid_mesh(
     if config.stop_after_step == 6:
         qa_path = config.out_dir / "reports" / "hybrid_mesh_qa_preflight.json"
         qa_path.parent.mkdir(parents=True, exist_ok=True)
-        qa_path.write_text(json.dumps({
-            "status": "step6_preflight_passed",
-            "cells": len(polygons),
-            "generation_time_s": perf_counter() - started_at,
-            "quality_repair_iterations": quality_repair_iterations,
-            "short_face_agglomerations": short_face_merges,
-            "cross_feature_short_face_agglomerations": cross_feature_short_face_merges,
-            "small_cell_agglomerations": small_cell_agglomerations,
-            "residual_face_agglomerations": residual_face_agglomerations,
-            "minimum_cfl_length_m": float(preflight_scale.min()),
-            "p05_cfl_length_m": float(np.quantile(preflight_scale, 0.05)),
-            "timings_s": {key: round(value, 6) for key, value in stage_times.items()},
-            **{key: value for key, value in preflight_edge_qa.items() if key not in {"bad_owners", "short_owners", "face_seed", "face_target_m"}},
-        }, indent=2), encoding="utf-8")
+        qa_path.write_text(
+            json.dumps(
+                {
+                    "status": "step6_preflight_passed",
+                    "cells": len(polygons),
+                    "generation_time_s": perf_counter() - started_at,
+                    "quality_repair_iterations": quality_repair_iterations,
+                    "short_face_agglomerations": short_face_merges,
+                    "cross_feature_short_face_agglomerations": cross_feature_short_face_merges,
+                    "small_cell_agglomerations": small_cell_agglomerations,
+                    "residual_face_agglomerations": residual_face_agglomerations,
+                    "minimum_cfl_length_m": float(preflight_scale.min()),
+                    "p05_cfl_length_m": float(np.quantile(preflight_scale, 0.05)),
+                    "timings_s": {
+                        key: round(value, 6) for key, value in stage_times.items()
+                    },
+                    **{
+                        key: value
+                        for key, value in preflight_edge_qa.items()
+                        if key
+                        not in {
+                            "bad_owners",
+                            "short_owners",
+                            "face_seed",
+                            "face_target_m",
+                        }
+                    },
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         return {
             "status": "step6_preflight_passed",
             "cells": len(polygons),
@@ -4573,15 +5877,26 @@ def _build_hybrid_mesh(
         faces, edges = _topology(polygons)
         polygons = [Polygon(face) for face in faces]
         feature_classes = _feature_classes(
-            polygons, river_geometry, floodplain_geometry, urban, transform, river_class_points,
+            polygons,
+            river_geometry,
+            floodplain_geometry,
+            urban,
+            transform,
+            river_class_points,
             waterbody_geometry=waterbody_geometry,
         )
         final_edge_qa = _edge_quality(
-            polygons, points, target, transform,
+            polygons,
+            points,
+            target,
+            transform,
             config.minimum_face_length_factor * config.minimum_hydraulic_width_m,
             config.minimum_center_distance_factor * config.minimum_hydraulic_width_m,
         )
-        if not final_edge_qa["short_internal_face_count"] and not final_edge_qa["close_internal_center_count"]:
+        if (
+            not final_edge_qa["short_internal_face_count"]
+            and not final_edge_qa["close_internal_center_count"]
+        ):
             break
         if exhausted or iteration == config.quality_repair_max_iterations:
             break
@@ -4594,7 +5909,10 @@ def _build_hybrid_mesh(
         # the 0.1 mm export grid just introduced.  A full five-round repair here
         # costs ~250 s per iteration and finds almost nothing.
         polygons, repair = conform_and_repair_cells(
-            polygons, minimum_face_length_m, 0.5 * config.minimum_hydraulic_width_m, domain,
+            polygons,
+            minimum_face_length_m,
+            0.5 * config.minimum_hydraulic_width_m,
+            domain,
             max_rounds=1,
         )
         hanging_nodes_inserted += repair["inserted"]
@@ -4614,7 +5932,8 @@ def _build_hybrid_mesh(
         # attempting the merge here costs nothing when there is nothing to merge.
         protection = (
             _merge_group_keys(feature_classes)
-            if config.river_cell_style == "structured_strip" and not normalization_escalated
+            if config.river_cell_style == "structured_strip"
+            and not normalization_escalated
             else None
         )
         polygons, merged = _agglomerate_short_face_cells(
@@ -4642,7 +5961,10 @@ def _build_hybrid_mesh(
             continue
         topology_normalization_merges += merged
         polygons, repair = conform_and_repair_cells(
-            polygons, minimum_face_length_m, 0.5 * config.minimum_hydraulic_width_m, domain,
+            polygons,
+            minimum_face_length_m,
+            0.5 * config.minimum_hydraulic_width_m,
+            domain,
         )
         hanging_nodes_inserted += repair["inserted"]
         hanging_nodes_snapped += repair["snapped"]
@@ -4653,27 +5975,45 @@ def _build_hybrid_mesh(
         partition_void_area_m2 += repair["void_area_m2"]
         partition_void_searches_skipped += repair["void_search_skipped"]
         conformity_repair_rounds += repair["rounds"]
-    interior_unpaired_faces, interior_unpaired_length = internal_unpaired_edges(edges, domain)
-    if final_edge_qa["short_internal_face_count"] or final_edge_qa["close_internal_center_count"]:
+    interior_unpaired_faces, interior_unpaired_length = internal_unpaired_edges(
+        edges, domain
+    )
+    if (
+        final_edge_qa["short_internal_face_count"]
+        or final_edge_qa["close_internal_center_count"]
+    ):
         # This gate previously raised with counts only.  Write the offending
         # pairs so a normalization failure is as diagnosable as a preflight one.
         bad_path = config.out_dir / "diagnostics" / "mesh_final_bad_faces.gpkg"
         bad_path.parent.mkdir(parents=True, exist_ok=True)
         pair_rows: dict[str, list[Any]] = {
-            "owner": [], "neighbour": [], "owner_class": [], "neighbour_class": [],
-            "shared_face_length_m": [], "center_distance_m": [], "owner_cfl_width_m": [],
-            "owner_ring_vertices": [], "owner_is_valid": [],
+            "owner": [],
+            "neighbour": [],
+            "owner_class": [],
+            "neighbour_class": [],
+            "shared_face_length_m": [],
+            "center_distance_m": [],
+            "owner_cfl_width_m": [],
+            "owner_ring_vertices": [],
+            "owner_is_valid": [],
         }
         pair_geometry = []
-        for left, right in np.unique(np.sort(final_edge_qa["bad_owners"], axis=1), axis=0):
+        for left, right in np.unique(
+            np.sort(final_edge_qa["bad_owners"], axis=1), axis=0
+        ):
             left, right = int(left), int(right)
             pair_rows["owner"].append(left)
             pair_rows["neighbour"].append(right)
             pair_rows["owner_class"].append(feature_classes[left])
             pair_rows["neighbour_class"].append(feature_classes[right])
             pair_rows["shared_face_length_m"].append(
-                float(polygons[left].boundary.intersection(polygons[right].boundary).length)
-                if left != right else float("nan")
+                float(
+                    polygons[left]
+                    .boundary.intersection(polygons[right].boundary)
+                    .length
+                )
+                if left != right
+                else float("nan")
             )
             pair_rows["center_distance_m"].append(
                 float(polygons[left].centroid.distance(polygons[right].centroid))
@@ -4687,7 +6027,9 @@ def _build_hybrid_mesh(
             pair_rows["owner_is_valid"].append(bool(polygons[left].is_valid))
             pair_geometry.append(polygons[left])
         gpd.GeoDataFrame(pair_rows, geometry=pair_geometry, crs=crs).to_file(
-            bad_path, layer="final_bad_face_pairs", driver="GPKG",
+            bad_path,
+            layer="final_bad_face_pairs",
+            driver="GPKG",
         )
         raise ValueError(
             "Mesh quality failed after topology normalization: "
@@ -4700,17 +6042,30 @@ def _build_hybrid_mesh(
     ugrid = config.out_dir / "mesh" / "hydropol_hybrid_mesh.nc"
     gpkg.parent.mkdir(parents=True, exist_ok=True)
     polygon_tree = STRtree(polygons)
-    river_fraction = _geometry_area_fractions(polygons, physical_river_geometry, polygon_tree)
-    river_channel_fraction = _geometry_area_fractions(
-        polygons, river_geometry, polygon_tree, strip_cells,
+    river_fraction = _geometry_area_fractions(
+        polygons, physical_river_geometry, polygon_tree
     )
-    floodplain_fraction = _geometry_area_fractions(polygons, floodplain_geometry, polygon_tree)
-    waterbody_fraction = _geometry_area_fractions(polygons, waterbody_geometry, polygon_tree)
+    river_channel_fraction = _geometry_area_fractions(
+        polygons,
+        river_geometry,
+        polygon_tree,
+        strip_cells,
+    )
+    floodplain_fraction = _geometry_area_fractions(
+        polygons, floodplain_geometry, polygon_tree
+    )
+    waterbody_fraction = _geometry_area_fractions(
+        polygons, waterbody_geometry, polygon_tree
+    )
     feature_class_fraction = 0.10
     river_channel_class_fraction = 0.5
     feature_classes = _fraction_refined_feature_classes(
-        feature_classes, river_channel_fraction, floodplain_fraction, waterbody_fraction,
-        feature_class_fraction, river_channel_class_fraction,
+        feature_classes,
+        river_channel_fraction,
+        floodplain_fraction,
+        waterbody_fraction,
+        feature_class_fraction,
+        river_channel_class_fraction,
     )
     # Carry the ribbon's reach/station identity onto the exported cells so the
     # MATLAB and Python models can address a river cell by reach and station
@@ -4723,7 +6078,9 @@ def _build_hybrid_mesh(
     channel_width_m = np.full(len(polygons), np.nan)
     river_index = np.flatnonzero(np.asarray(feature_classes, dtype=object) == "river")
     if strip_cells and len(river_index):
-        representative = point_on_surface(np.asarray([polygons[item] for item in river_index], dtype=object))
+        representative = point_on_surface(
+            np.asarray([polygons[item] for item in river_index], dtype=object)
+        )
         hits = STRtree(strip_cells).query(representative, predicate="within")
         matched: dict[int, int] = {}
         for point_index, strip_index in zip(hits[0], hits[1], strict=True):
@@ -4740,16 +6097,28 @@ def _build_hybrid_mesh(
     for sidecar in (gpkg, Path(f"{gpkg}-wal"), Path(f"{gpkg}-shm")):
         sidecar.unlink(missing_ok=True)
     gpd.GeoDataFrame(
-        {"face_id": range(len(polygons)), "area_m2": [item.area for item in polygons], "feature_class": feature_classes,
-         "river_fraction": river_fraction, "river_channel_fraction": river_channel_fraction,
-         "floodplain_fraction": floodplain_fraction, "waterbody_fraction": waterbody_fraction,
-         "reach_id": reach_id, "cross_band": cross_band, "station_start_m": station_start_m,
-         "station_end_m": station_end_m, "channel_width_m": channel_width_m},
-        geometry=polygons, crs=crs,
+        {
+            "face_id": range(len(polygons)),
+            "area_m2": [item.area for item in polygons],
+            "feature_class": feature_classes,
+            "river_fraction": river_fraction,
+            "river_channel_fraction": river_channel_fraction,
+            "floodplain_fraction": floodplain_fraction,
+            "waterbody_fraction": waterbody_fraction,
+            "reach_id": reach_id,
+            "cross_band": cross_band,
+            "station_start_m": station_start_m,
+            "station_end_m": station_end_m,
+            "channel_width_m": channel_width_m,
+        },
+        geometry=polygons,
+        crs=crs,
     ).to_file(gpkg, layer="mesh", driver="GPKG")
     if strip_banks:
         gpd.GeoDataFrame(
-            {"bank_id": range(len(strip_banks))}, geometry=strip_banks, crs=crs,
+            {"bank_id": range(len(strip_banks))},
+            geometry=strip_banks,
+            crs=crs,
         ).to_file(gpkg, layer="river_bank_breaklines", driver="GPKG")
     if not river_geometry.is_empty:
         gpd.GeoDataFrame(
@@ -4766,13 +6135,25 @@ def _build_hybrid_mesh(
     mark("geopackage_write")
     cell_target_width = area_weighted_cell_target(polygons, target, transform)
     export_report = _write_ugrid(
-        ugrid, faces, edges, polygons, crs, target, transform, dem, feature_classes,
-        np.asarray(river_fraction), np.asarray(river_channel_fraction), np.asarray(floodplain_fraction),
+        ugrid,
+        faces,
+        edges,
+        polygons,
+        crs,
+        target,
+        transform,
+        dem,
+        feature_classes,
+        np.asarray(river_fraction),
+        np.asarray(river_channel_fraction),
+        np.asarray(floodplain_fraction),
         np.asarray(waterbody_fraction),
         cell_target_width=cell_target_width,
         river_strip={
-            "cell_reach_id": reach_id, "cell_cross_band": cross_band,
-            "cell_station_start_m": station_start_m, "cell_station_end_m": station_end_m,
+            "cell_reach_id": reach_id,
+            "cell_cross_band": cross_band,
+            "cell_station_start_m": station_start_m,
+            "cell_station_end_m": station_end_m,
             "cell_channel_width_m": channel_width_m,
         },
     )
@@ -4781,7 +6162,11 @@ def _build_hybrid_mesh(
     if config.write_diagnostics:
         _write_mesh_class_figure(
             config.out_dir / "diagnostics" / "hybrid_mesh_wireframe.png",
-            polygons, feature_classes, crs, river_geometry, floodplain_geometry,
+            polygons,
+            feature_classes,
+            crs,
+            river_geometry,
+            floodplain_geometry,
             "Step 6 — feature-boundary split and sliver repair",
             waterbody_geometry=waterbody_geometry,
         )
@@ -4797,12 +6182,132 @@ def _build_hybrid_mesh(
     # name ``minimum_cfl_length_m`` while the file carried the other number, so the
     # Pune report said 15.0 m for a mesh that actually shipped 7.39 m.  Both are
     # reported now, each under a name that says which one it is.
-    cfl_width = 2.0 * np.asarray([item.area for item in polygons]) / np.maximum(perimeters, 1e-12)
+    cfl_width = (
+        2.0
+        * np.asarray([item.area for item in polygons])
+        / np.maximum(perimeters, 1e-12)
+    )
     mesh_counts = Counter(feature_classes)
     unresolved_river_input_cells = int((river & ~resolved_river).sum())
     mark("summary_metrics")
-    qa = {"config": {key: str(value) if isinstance(value, Path) else value for key, value in asdict(config).items()}, "cells": len(polygons), "edges": len(edges), "generation_time_s": perf_counter() - started_at, "timings_s": {key: round(value, 6) for key, value in stage_times.items()}, "mean_cell_degree": float(degree.mean()), "rural_quad_fraction": float(np.mean(degree == 4)), "minimum_cfl_length_m": float(np.min(ugrid_control_width)), "minimum_cell_compactness_2a_over_p_m": float(cfl_width.min()), "p05_cell_compactness_2a_over_p_m": float(np.quantile(cfl_width, 0.05)), "river_cells": int(mesh_counts["river"]), "urban_cells": int(mesh_counts["urban"]), "floodplain_cells": int(mesh_counts["floodplain"]), "waterbody_cells": int(mesh_counts["waterbody"]), "rural_cells": int(mesh_counts["rural"]), "river_input_raster_cells": int(river.sum()), "resolved_2d_river_input_cells": int(resolved_river.sum()), "unresolved_river_input_cells": unresolved_river_input_cells, "neal_subgrid_river_input_cells": unresolved_river_input_cells if config.unresolved_policy == "neal_subgrid" else 0, "urban_input_raster_cells": int(urban.sum()), "floodplain_input_raster_cells": int(floodplain.sum()), "waterbody_input_raster_cells": int(waterbody.sum()), "nonwater_cells_with_waterbody_fraction_gt_0p01": int(((np.asarray(feature_classes, dtype=object) != "waterbody") & (waterbody_fraction > 0.01)).sum()), "nonwater_cells_with_waterbody_fraction_gt_0p10": int(((np.asarray(feature_classes, dtype=object) != "waterbody") & (waterbody_fraction > 0.10)).sum()), "river_cells_with_waterbody_fraction_gt_0p01": int(((np.asarray(feature_classes, dtype=object) == "river") & (waterbody_fraction > 0.01)).sum()), "floodplain_cells_with_waterbody_fraction_gt_0p01": int(((np.asarray(feature_classes, dtype=object) == "floodplain") & (waterbody_fraction > 0.01)).sum()), "river_cells_with_channel_fraction_lt_0p5": int(((np.asarray(feature_classes, dtype=object) == "river") & (river_channel_fraction < river_channel_class_fraction)).sum()), "river_feature_seed_count": int(len(river_ribbon)), "river_bank_support_seed_count": int(len(river_bank_support)), "floodplain_feature_seed_count": int(len(floodplain_ribbon)), "waterbody_feature_seed_count": int(len(waterbody_ribbon)), "boundary_support_seed_count": int(len(support)), "reserved_feature_cells": int(reservation.sum()), "quality_repair_iterations": quality_repair_iterations, "short_face_agglomerations": short_face_merges, "cross_feature_short_face_agglomerations": cross_feature_short_face_merges, "small_cell_agglomerations": small_cell_agglomerations, "residual_face_agglomerations": residual_face_agglomerations, "topology_normalization_agglomerations": topology_normalization_merges, "river_cell_style": config.river_cell_style, "river_strip_cells_built": int(len(strip_cells)), "river_strip_reaches": int(len({item["reach_id"] for item in strip_attributes})) if strip_attributes else 0, "river_strip_channel_area_km2": float(river_geometry.area / 1e6), "river_strip_discarded_area_m2": float(strip_discarded_area_m2), "hanging_nodes_inserted": int(hanging_nodes_inserted), "hanging_nodes_snapped": int(hanging_nodes_snapped), "degenerate_cells_absorbed": int(degenerate_cells_absorbed), "short_faces_welded": int(short_faces_welded), "pinched_cells_split": int(pinched_cells_split), "partition_voids_filled": int(partition_voids_filled), "partition_void_area_m2": float(partition_void_area_m2), "partition_void_searches_skipped": int(partition_void_searches_skipped), "conformity_repair_rounds": int(conformity_repair_rounds), "cross_feature_residual_merges": int(cross_feature_residual_merges), "cells_with_exterior_centroid": int((~contains(np.asarray(polygons, dtype=object), centroid(np.asarray(polygons, dtype=object)))).sum()), "background_sliver_merges": int(background_sliver_merges), "interior_unpaired_face_count": int(interior_unpaired_faces), "interior_unpaired_face_length_m": float(interior_unpaired_length), "boundary_face_count": int(sum(1 for owners in edges.values() if len(owners) == 1)), "domain_perimeter_m": float(domain.length), **export_report, "cells_with_interior_ring": int(sum(1 for item in polygons if item.interiors)), "faces_with_more_than_two_owners": int(sum(1 for owners in edges.values() if len(owners) > 2)), "cell_area_sum_km2": float(sum(item.area for item in polygons) / 1e6), "domain_area_km2": float(domain.area / 1e6), **{key: value for key, value in final_edge_qa.items() if key not in {"bad_owners", "short_owners", "face_seed", "face_target_m"}}}
-    qa_path = config.out_dir / "reports" / "hybrid_mesh_qa.json"; qa_path.parent.mkdir(parents=True, exist_ok=True); qa_path.write_text(json.dumps(qa, indent=2), encoding="utf-8")
+    qa = {
+        "config": {
+            key: str(value) if isinstance(value, Path) else value
+            for key, value in asdict(config).items()
+        },
+        "cells": len(polygons),
+        "edges": len(edges),
+        "generation_time_s": perf_counter() - started_at,
+        "timings_s": {key: round(value, 6) for key, value in stage_times.items()},
+        "mean_cell_degree": float(degree.mean()),
+        "rural_quad_fraction": float(np.mean(degree == 4)),
+        "minimum_cfl_length_m": float(np.min(ugrid_control_width)),
+        "minimum_cell_compactness_2a_over_p_m": float(cfl_width.min()),
+        "p05_cell_compactness_2a_over_p_m": float(np.quantile(cfl_width, 0.05)),
+        "river_cells": int(mesh_counts["river"]),
+        "urban_cells": int(mesh_counts["urban"]),
+        "floodplain_cells": int(mesh_counts["floodplain"]),
+        "waterbody_cells": int(mesh_counts["waterbody"]),
+        "rural_cells": int(mesh_counts["rural"]),
+        "river_input_raster_cells": int(river.sum()),
+        "resolved_2d_river_input_cells": int(resolved_river.sum()),
+        "unresolved_river_input_cells": unresolved_river_input_cells,
+        "neal_subgrid_river_input_cells": unresolved_river_input_cells
+        if config.unresolved_policy == "neal_subgrid"
+        else 0,
+        "urban_input_raster_cells": int(urban.sum()),
+        "floodplain_input_raster_cells": int(floodplain.sum()),
+        "waterbody_input_raster_cells": int(waterbody.sum()),
+        "nonwater_cells_with_waterbody_fraction_gt_0p01": int(
+            (
+                (np.asarray(feature_classes, dtype=object) != "waterbody")
+                & (waterbody_fraction > 0.01)
+            ).sum()
+        ),
+        "nonwater_cells_with_waterbody_fraction_gt_0p10": int(
+            (
+                (np.asarray(feature_classes, dtype=object) != "waterbody")
+                & (waterbody_fraction > 0.10)
+            ).sum()
+        ),
+        "river_cells_with_waterbody_fraction_gt_0p01": int(
+            (
+                (np.asarray(feature_classes, dtype=object) == "river")
+                & (waterbody_fraction > 0.01)
+            ).sum()
+        ),
+        "floodplain_cells_with_waterbody_fraction_gt_0p01": int(
+            (
+                (np.asarray(feature_classes, dtype=object) == "floodplain")
+                & (waterbody_fraction > 0.01)
+            ).sum()
+        ),
+        "river_cells_with_channel_fraction_lt_0p5": int(
+            (
+                (np.asarray(feature_classes, dtype=object) == "river")
+                & (river_channel_fraction < river_channel_class_fraction)
+            ).sum()
+        ),
+        "river_feature_seed_count": int(len(river_ribbon)),
+        "river_bank_support_seed_count": int(len(river_bank_support)),
+        "floodplain_feature_seed_count": int(len(floodplain_ribbon)),
+        "waterbody_feature_seed_count": int(len(waterbody_ribbon)),
+        "boundary_support_seed_count": int(len(support)),
+        "reserved_feature_cells": int(reservation.sum()),
+        "quality_repair_iterations": quality_repair_iterations,
+        "short_face_agglomerations": short_face_merges,
+        "cross_feature_short_face_agglomerations": cross_feature_short_face_merges,
+        "small_cell_agglomerations": small_cell_agglomerations,
+        "residual_face_agglomerations": residual_face_agglomerations,
+        "topology_normalization_agglomerations": topology_normalization_merges,
+        "river_cell_style": config.river_cell_style,
+        "river_strip_cells_built": int(len(strip_cells)),
+        "river_strip_reaches": int(len({item["reach_id"] for item in strip_attributes}))
+        if strip_attributes
+        else 0,
+        "river_strip_channel_area_km2": float(river_geometry.area / 1e6),
+        "river_strip_discarded_area_m2": float(strip_discarded_area_m2),
+        "hanging_nodes_inserted": int(hanging_nodes_inserted),
+        "hanging_nodes_snapped": int(hanging_nodes_snapped),
+        "degenerate_cells_absorbed": int(degenerate_cells_absorbed),
+        "short_faces_welded": int(short_faces_welded),
+        "pinched_cells_split": int(pinched_cells_split),
+        "partition_voids_filled": int(partition_voids_filled),
+        "partition_void_area_m2": float(partition_void_area_m2),
+        "partition_void_searches_skipped": int(partition_void_searches_skipped),
+        "conformity_repair_rounds": int(conformity_repair_rounds),
+        "cross_feature_residual_merges": int(cross_feature_residual_merges),
+        "cells_with_exterior_centroid": int(
+            (
+                ~contains(
+                    np.asarray(polygons, dtype=object),
+                    centroid(np.asarray(polygons, dtype=object)),
+                )
+            ).sum()
+        ),
+        "background_sliver_merges": int(background_sliver_merges),
+        "interior_unpaired_face_count": int(interior_unpaired_faces),
+        "interior_unpaired_face_length_m": float(interior_unpaired_length),
+        "boundary_face_count": int(
+            sum(1 for owners in edges.values() if len(owners) == 1)
+        ),
+        "domain_perimeter_m": float(domain.length),
+        **export_report,
+        "cells_with_interior_ring": int(sum(1 for item in polygons if item.interiors)),
+        "faces_with_more_than_two_owners": int(
+            sum(1 for owners in edges.values() if len(owners) > 2)
+        ),
+        "cell_area_sum_km2": float(sum(item.area for item in polygons) / 1e6),
+        "domain_area_km2": float(domain.area / 1e6),
+        **{
+            key: value
+            for key, value in final_edge_qa.items()
+            if key not in {"bad_owners", "short_owners", "face_seed", "face_target_m"}
+        },
+    }
+    qa_path = config.out_dir / "reports" / "hybrid_mesh_qa.json"
+    qa_path.parent.mkdir(parents=True, exist_ok=True)
+    qa_path.write_text(json.dumps(qa, indent=2), encoding="utf-8")
     return {"ugrid": str(ugrid), "geopackage": str(gpkg), "qa": str(qa_path), **qa}
 
 
@@ -4815,7 +6320,8 @@ def generate_computation_points(config: HybridMeshConfig) -> ComputationPointSet
 
 
 def compile_mesh_from_points(
-    config: HybridMeshConfig, points: ComputationPointSet,
+    config: HybridMeshConfig,
+    points: ComputationPointSet,
 ) -> dict[str, Any]:
     """Compile a mesh product from explicit computation sites."""
     result = _build_hybrid_mesh(config, computation_points=points)
@@ -4833,10 +6339,24 @@ def build_hybrid_mesh(config: HybridMeshConfig) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Build a parameterized hybrid quad/Voronoi HydroPol mesh.")
-    parser.add_argument("--config", required=True, type=Path, help="JSON/TOML hybrid-mesh configuration.")
+    parser = argparse.ArgumentParser(
+        description="Build a parameterized hybrid quad/Voronoi HydroPol mesh."
+    )
+    parser.add_argument(
+        "--config",
+        required=True,
+        type=Path,
+        help="JSON/TOML hybrid-mesh configuration.",
+    )
     args = parser.parse_args(argv)
-    print(json.dumps(build_hybrid_mesh(HybridMeshConfig.from_mapping(load_config_file(args.config))), indent=2))
+    print(
+        json.dumps(
+            build_hybrid_mesh(
+                HybridMeshConfig.from_mapping(load_config_file(args.config))
+            ),
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

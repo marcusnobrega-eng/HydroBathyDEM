@@ -39,29 +39,29 @@ from dataclasses import dataclass
 import numpy as np
 
 FT = 0.3048
-CELL_ELEV_VOL_FILTER_M = 0.01 * FT      # HEC-RAS default 0.01 ft
-FACE_AREA_ELEV_FILTER_M = 0.01 * FT     # HEC-RAS default 0.01 ft
-FACE_CONVEYANCE_TOL = 0.02              # HEC-RAS default 2%
-MINIMUM_AREA_FRACTION = 1.0e-2          # HEC-RAS default (2D Manual: "Cell Minimum
-                                        # Area Fraction", default 0.01 = 1%). An
-                                        # earlier 1e-3 here was a deliberate deviation
-                                        # and it was wrong: measured on a 60 m tilted-
-                                        # plane cell holding 0.9 mm of rain it raised
-                                        # the level-pool stage 1.3x and the face
-                                        # conveyance 2.9x.  Do not lower it again
-                                        # without re-running grid convergence.
+CELL_ELEV_VOL_FILTER_M = 0.01 * FT  # HEC-RAS default 0.01 ft
+FACE_AREA_ELEV_FILTER_M = 0.01 * FT  # HEC-RAS default 0.01 ft
+FACE_CONVEYANCE_TOL = 0.02  # HEC-RAS default 2%
+MINIMUM_AREA_FRACTION = 1.0e-2  # HEC-RAS default (2D Manual: "Cell Minimum
+# Area Fraction", default 0.01 = 1%). An
+# earlier 1e-3 here was a deliberate deviation
+# and it was wrong: measured on a 60 m tilted-
+# plane cell holding 0.9 mm of rain it raised
+# the level-pool stage 1.3x and the face
+# conveyance 2.9x.  Do not lower it again
+# without re-running grid convergence.
 
 
 @dataclass(frozen=True)
 class CellVolumeTable:
     """Ragged elevation-volume curves, one row per cell, in local coordinates."""
 
-    datum_m: np.ndarray          # (n_cells,) z_ref per cell
-    zeta_m: np.ndarray           # (n_cells, max_pts)
-    volume_m3: np.ndarray        # (n_cells, max_pts)
-    area_m2: np.ndarray          # (n_cells, max_pts) dV/dzeta on each segment
-    count: np.ndarray            # (n_cells,) valid points
-    plan_area_m2: np.ndarray     # (n_cells,) full cell plan area
+    datum_m: np.ndarray  # (n_cells,) z_ref per cell
+    zeta_m: np.ndarray  # (n_cells, max_pts)
+    volume_m3: np.ndarray  # (n_cells, max_pts)
+    area_m2: np.ndarray  # (n_cells, max_pts) dV/dzeta on each segment
+    count: np.ndarray  # (n_cells,) valid points
+    plan_area_m2: np.ndarray  # (n_cells,) full cell plan area
 
     def stage(self, volume_m3: np.ndarray) -> np.ndarray:
         """Water surface elevation from stored volume. Exact, non-iterative."""
@@ -69,10 +69,17 @@ class CellVolumeTable:
         rows = np.arange(len(volume))
         last = self.count - 1
         # locate the segment: rightmost j with V_j <= volume
-        j = np.array([
-            int(np.searchsorted(self.volume_m3[i, : self.count[i]], volume[i], side="right")) - 1
-            for i in rows
-        ])
+        j = np.array(
+            [
+                int(
+                    np.searchsorted(
+                        self.volume_m3[i, : self.count[i]], volume[i], side="right"
+                    )
+                )
+                - 1
+                for i in rows
+            ]
+        )
         j = np.clip(j, 0, last)
         base_v = self.volume_m3[rows, j]
         base_z = self.zeta_m[rows, j]
@@ -87,10 +94,17 @@ class CellVolumeTable:
         zeta = np.asarray(stage_m, dtype=np.float64) - self.datum_m
         rows = np.arange(len(zeta))
         last = self.count - 1
-        j = np.array([
-            int(np.searchsorted(self.zeta_m[i, : self.count[i]], zeta[i], side="right")) - 1
-            for i in rows
-        ])
+        j = np.array(
+            [
+                int(
+                    np.searchsorted(
+                        self.zeta_m[i, : self.count[i]], zeta[i], side="right"
+                    )
+                )
+                - 1
+                for i in rows
+            ]
+        )
         j = np.clip(j, 0, last)
         slope = self.area_m2[rows, j]
         top = j >= last
@@ -234,7 +248,6 @@ def build_cell_volume_table(
         rows.append(np.arange(lo, hi))
     owner = cell[starts[:-1]]
 
-    curves: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
     datum = np.zeros(n_cells)
     counts = np.ones(n_cells, dtype=np.int64)
     blank = (np.zeros(2), np.zeros(2), np.zeros(2))
@@ -246,7 +259,6 @@ def build_cell_volume_table(
         finite = np.isfinite(z) & (a > 0)
         if not finite.any():
             continue
-        a_all = area[idx]
         z, a = z[finite], a[finite]
         if level_pool_mask is not None and not bool(level_pool_mask[m]):
             # flat-prism closure for this cell, expressed as a table so the solver
@@ -287,7 +299,9 @@ def build_cell_volume_table(
         table[m] = (zeta_u, vol, wet)
 
     width = max(2, int(counts.max()))
-    Z = np.zeros((n_cells, width)); V = np.zeros((n_cells, width)); A = np.zeros((n_cells, width))
+    Z = np.zeros((n_cells, width))
+    V = np.zeros((n_cells, width))
+    A = np.zeros((n_cells, width))
     for m in range(n_cells):
         z, v, a = table[m]
         k = len(z)
@@ -296,11 +310,16 @@ def build_cell_volume_table(
             Z[m, k:] = z[-1] if k else 0.0
             V[m, k:] = v[-1] if k else 0.0
             A[m, k:] = a[-1] if k else plan_area_m2[m]
-    return CellVolumeTable(datum, Z, V, A, counts, np.asarray(plan_area_m2, dtype=np.float64))
+    return CellVolumeTable(
+        datum, Z, V, A, counts, np.asarray(plan_area_m2, dtype=np.float64)
+    )
 
 
 def _thin_volume_curve(
-    zeta: np.ndarray, volume: np.ndarray, area: np.ndarray, filter_m: float,
+    zeta: np.ndarray,
+    volume: np.ndarray,
+    area: np.ndarray,
+    filter_m: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Drop breakpoints whose removal moves the curve less than ``filter_m``.
 
@@ -327,21 +346,26 @@ def _thin_volume_curve(
 class FaceConveyanceTable:
     """Elevation vs flow area, wetted perimeter and conveyance, one row per face."""
 
-    datum_m: np.ndarray          # (n_faces,) lowest terrain point on the face
-    zeta_m: np.ndarray           # (n_faces, max_pts)
-    area_m2: np.ndarray          # (n_faces, max_pts) flow area through the face
-    perimeter_m: np.ndarray      # (n_faces, max_pts) wetted perimeter
-    conveyance: np.ndarray       # (n_faces, max_pts) K = sum (A_i/n_i) R_i^(2/3)
-    count: np.ndarray            # (n_faces,)
-    length_m: np.ndarray         # (n_faces,) full face length
+    datum_m: np.ndarray  # (n_faces,) lowest terrain point on the face
+    zeta_m: np.ndarray  # (n_faces, max_pts)
+    area_m2: np.ndarray  # (n_faces, max_pts) flow area through the face
+    perimeter_m: np.ndarray  # (n_faces, max_pts) wetted perimeter
+    conveyance: np.ndarray  # (n_faces, max_pts) K = sum (A_i/n_i) R_i^(2/3)
+    count: np.ndarray  # (n_faces,)
+    length_m: np.ndarray  # (n_faces,) full face length
 
     def _interp(self, table: np.ndarray, stage_m: np.ndarray) -> np.ndarray:
         zeta = np.asarray(stage_m, dtype=np.float64) - self.datum_m
         out = np.zeros(len(zeta))
         for i in range(len(zeta)):
             k = self.count[i]
-            out[i] = np.interp(zeta[i], self.zeta_m[i, :k], table[i, :k],
-                               left=0.0, right=table[i, k - 1])
+            out[i] = np.interp(
+                zeta[i],
+                self.zeta_m[i, :k],
+                table[i, :k],
+                left=0.0,
+                right=table[i, k - 1],
+            )
         return out
 
     def flow_area(self, stage_m: np.ndarray) -> np.ndarray:
@@ -436,7 +460,7 @@ def build_face_conveyance_table(
         z_ref = float(np.nanmin(bed))
         seg_len = np.diff(station)
         seg_bed = 0.5 * (bed[:-1] + bed[1:]) - z_ref
-        seg_wet = np.hypot(seg_len, np.diff(bed))       # wetted length along the bed
+        seg_wet = np.hypot(seg_len, np.diff(bed))  # wetted length along the bed
         seg_n = np.maximum(0.5 * (rough[:-1] + rough[1:]), 1e-6)
 
         def panels(zeta: float):
@@ -523,14 +547,21 @@ def build_face_conveyance_table(
         built.append((levels, A, P, K))
 
     width = max(2, int(counts.max()))
-    Z = np.zeros((n_faces, width)); A = np.zeros_like(Z)
-    P = np.zeros_like(Z); K = np.zeros_like(Z)
+    Z = np.zeros((n_faces, width))
+    A = np.zeros_like(Z)
+    P = np.zeros_like(Z)
+    K = np.zeros_like(Z)
     for f, (z, a, p, k) in enumerate(built):
         m = len(z)
         Z[f, :m], A[f, :m], P[f, :m], K[f, :m] = z, a, p, k
         if m < width:
-            Z[f, m:] = z[-1]; A[f, m:] = a[-1]; P[f, m:] = p[-1]; K[f, m:] = k[-1]
-    return FaceConveyanceTable(datum, Z, A, P, K, counts, np.asarray(length_m, dtype=np.float64))
+            Z[f, m:] = z[-1]
+            A[f, m:] = a[-1]
+            P[f, m:] = p[-1]
+            K[f, m:] = k[-1]
+    return FaceConveyanceTable(
+        datum, Z, A, P, K, counts, np.asarray(length_m, dtype=np.float64)
+    )
 
 
 SUBGRID_POLICIES = ("all", "river", "river_floodplain", "waterbody", "none")
@@ -612,8 +643,10 @@ def subgrid_cell_policy(
     elif policy == "waterbody":
         mask = np.isin(classes, ("waterbody", "reservoir", "lake"))
     else:
-        mask = np.isin(classes, ("river", "channel", "floodplain", "waterbody",
-                                 "reservoir", "lake"))
+        mask = np.isin(
+            classes,
+            ("river", "channel", "floodplain", "waterbody", "reservoir", "lake"),
+        )
     if within_cell_relief_m is not None and relief_threshold_m > 0.0:
         mask &= np.asarray(within_cell_relief_m, dtype=np.float64) >= relief_threshold_m
     return mask

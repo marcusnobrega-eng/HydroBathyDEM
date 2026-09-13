@@ -273,6 +273,17 @@ def test_mesh_diagnostics_can_be_disabled_from_quality_group() -> None:
     assert config.write_diagnostics is False
 
 
+def test_intermediate_mesh_diagnostics_can_be_disabled_independently() -> None:
+    config = HybridMeshConfig.from_mapping({
+        "mesh_mode": "voronoi_fv",
+        "dem": "dem.tif",
+        "out_dir": "mesh",
+        "quality": {"write_intermediate_diagnostics": False},
+    })
+    assert config.write_diagnostics is True
+    assert config.write_intermediate_diagnostics is False
+
+
 def test_undersized_cell_repairs_to_longest_same_class_neighbour() -> None:
     polygons = [box(0, 0, 1, 1), box(1, 0, 3, 1), box(0, 1, 1, 3)]
     pairs = _undersized_cell_repair_pairs(
