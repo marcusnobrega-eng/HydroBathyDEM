@@ -33,7 +33,7 @@ from typing import Any, Iterable
 
 import numpy as np
 from scipy.spatial import cKDTree
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Polygon
 from shapely import contains_xy, prepare, unary_union
 
 
@@ -329,6 +329,26 @@ def _resample(line: LineString, spacing_m: float) -> tuple[np.ndarray, np.ndarra
     return pts, np.column_stack((-tangent[:, 1], tangent[:, 0]))
 
 
+def _resample_segments(
+    line: LineString, spacing_m: float
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Sample each straight segment separately so breakline corners remain hard."""
+    coordinates = np.asarray(line.coords, dtype=np.float64)
+    sampled: list[tuple[np.ndarray, np.ndarray]] = []
+    for start, end in zip(coordinates[:-1], coordinates[1:], strict=True):
+        delta = end - start
+        length = float(np.hypot(delta[0], delta[1]))
+        if length <= 0.0:
+            continue
+        count = max(1, int(np.ceil(length / spacing_m)))
+        fraction = np.linspace(0.0, 1.0, count + 1)[:, None]
+        stations = start + fraction * delta
+        tangent = delta / length
+        normal = np.asarray([-tangent[1], tangent[0]], dtype=np.float64)
+        sampled.append((stations, np.repeat(normal[None, :], len(stations), axis=0)))
+    return sampled
+
+
 def breakline_points(
     breakline: Breakline, domain: Polygon, default_far_m: float,
 ) -> tuple[np.ndarray, float]:
@@ -345,13 +365,24 @@ def breakline_points(
     if not rows:
         return [], 0.0
     collected: list[tuple[np.ndarray, float]] = []
+    base_segments = _resample_segments(breakline.geometry, rows[0])
     offset = 0.0
     previous = 0.0
     for width in rows:
         # Row centre sits half a cell beyond the previous row's outer edge, so the
         # bisector between opposing rows lands on the line itself.
         offset += 0.5 * (previous + width) if previous else 0.5 * width
-        stations, normals = _resample(breakline.geometry, width)
+        stride = max(1, int(round(width / rows[0])))
+        station_groups: list[np.ndarray] = []
+        normal_groups: list[np.ndarray] = []
+        for base_stations, base_normals in base_segments:
+            indexes = np.arange(0, len(base_stations), stride, dtype=np.int64)
+            if len(base_stations) and indexes[-1] != len(base_stations) - 1:
+                indexes = np.append(indexes, len(base_stations) - 1)
+            station_groups.append(base_stations[indexes])
+            normal_groups.append(base_normals[indexes])
+        stations = np.vstack(station_groups) if station_groups else np.empty((0, 2))
+        normals = np.vstack(normal_groups) if normal_groups else np.empty((0, 2))
         if not len(stations):
             break
         if breakline.closed_area is not None:

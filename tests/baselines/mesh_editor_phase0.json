@@ -1,0 +1,78 @@
+{
+  "schema_version": "hydrobathydem-mesh-editor-baseline-1.0",
+  "generator_version": "0.3.0",
+  "cases": {
+    "synthetic_slope": {
+      "description": "Deterministic synthetic planar slope used for topology regression.",
+      "settings": {
+        "background_width_m": 30.0,
+        "minimum_hydraulic_width_m": 5.0
+      },
+      "expected": {
+        "cell_count": 16,
+        "edge_count": 40,
+        "node_count": 25,
+        "internal_edge_count": 24,
+        "boundary_edge_count": 16,
+        "degree_histogram": {"4": 16},
+        "center_extent_m": [500015.0, 1999895.0, 500105.0, 1999985.0],
+        "center_digest": "fb8d187a1a6ff926e37e37d4e84267d17aab003bccf277df1dfdff5316fbe523",
+        "area_sum_m2": 14400.0,
+        "area_min_m2": 900.0,
+        "area_max_m2": 900.0,
+        "bed_min_m": 107.972801,
+        "bed_max_m": 118.842072,
+        "bed_sum_m": 1814.439529,
+        "minimum_cfl_width_m": 30.0,
+        "minimum_internal_edge_length_m": 30.0,
+        "minimum_internal_center_distance_m": 30.0,
+        "feature_class_counts": {"rural": 16},
+        "qa": {
+          "short_internal_face_count": 0,
+          "close_internal_center_count": 0,
+          "interior_unpaired_face_count": 0,
+          "faces_with_more_than_two_owners": 0,
+          "cells_with_interior_ring": 0,
+          "cell_area_sum_km2": 0.0144,
+          "domain_area_km2": 0.0144
+        }
+      }
+    },
+    "pune_real_window": {
+      "description": "Fixed 24 x 24 window at row 600, column 600 of the tracked Pune FABDEM raster.",
+      "settings": {
+        "background_width_m": 90.0,
+        "minimum_hydraulic_width_m": 15.0
+      },
+      "expected": {
+        "cell_count": 64,
+        "edge_count": 144,
+        "node_count": 81,
+        "internal_edge_count": 112,
+        "boundary_edge_count": 32,
+        "degree_histogram": {"4": 64},
+        "center_extent_m": [343670.4096, 2080030.4846, 344300.4096, 2080660.4846],
+        "center_digest": "d442ce9cdc501450f41b1be920b75095dfc4f8878df134f58078048b54d39947",
+        "area_sum_m2": 518400.0,
+        "area_min_m2": 8100.0,
+        "area_max_m2": 8100.0,
+        "bed_min_m": 611.009583,
+        "bed_max_m": 659.198181,
+        "bed_sum_m": 40792.743286,
+        "minimum_cfl_width_m": 90.0,
+        "minimum_internal_edge_length_m": 90.0,
+        "minimum_internal_center_distance_m": 90.0,
+        "feature_class_counts": {"rural": 64},
+        "qa": {
+          "short_internal_face_count": 0,
+          "close_internal_center_count": 0,
+          "interior_unpaired_face_count": 0,
+          "faces_with_more_than_two_owners": 0,
+          "cells_with_interior_ring": 0,
+          "cell_area_sum_km2": 0.5184,
+          "domain_area_km2": 0.5184
+        }
+      }
+    }
+  }
+}

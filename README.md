@@ -218,6 +218,25 @@ hydrobathydem-build-mesh --config examples/mesh_regular_config_template.json
 hydrobathydem-build-mesh --config examples/mesh_voronoi_config_template.json
 ```
 
+### Editable mesh API
+
+The automatic builder and HydroPol2D Studio use the same staged API:
+
+```python
+from dem_processing.hybrid_mesh import compile_mesh_from_points, generate_computation_points
+from dem_processing.mesh_editor import apply_mesh_edits
+
+points = generate_computation_points(config)
+points = apply_mesh_edits(points, edits, config)
+product = compile_mesh_from_points(config, points)
+```
+
+`build_hybrid_mesh(config)` remains the compatible one-call workflow. An
+editing session stores `mesh_recipe.yaml` and `mesh_editor.gpkg`; compilation
+produces UGRID, conservative overlap, inspection GeoPackage, and QA products.
+Only computation points, breaklines, refinement regions, and regular-grid masks
+are editable. Final cells and faces are derived products.
+
 The templates contain placeholder paths and must be copied into a case before
 running. Mode-specific settings cannot be mixed. Unknown fields fail validation
 instead of being silently ignored.

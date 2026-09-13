@@ -33,17 +33,27 @@ class RegularMeshConfig:
     dem: Path
     out_dir: Path
     cell_size_m: float | None = None
+    cell_width_m: float | None = None
+    cell_height_m: float | None = None
 
     @classmethod
     def from_mapping(cls, values: dict[str, Any]) -> "RegularMeshConfig":
-        aliases = {"dem_path": "dem", "output_dir": "out_dir", "resolution_m": "cell_size_m"}
+        aliases = {
+            "dem_path": "dem",
+            "output_dir": "out_dir",
+            "resolution_m": "cell_size_m",
+            "dx_m": "cell_width_m",
+            "dy_m": "cell_height_m",
+        }
         normalized = {aliases.get(key, key): value for key, value in values.items()}
         for key in ("dem", "out_dir"):
             if normalized.get(key) is not None:
                 normalized[key] = Path(normalized[key])
         config = cls(**normalized)
-        if config.cell_size_m is not None and config.cell_size_m <= 0:
-            raise ValueError("mesh.regular.cell_size_m must be positive.")
+        for name in ("cell_size_m", "cell_width_m", "cell_height_m"):
+            value = getattr(config, name)
+            if value is not None and value <= 0:
+                raise ValueError(f"mesh.regular.{name} must be positive.")
         return config
 
 
@@ -60,7 +70,9 @@ def _selected_mesh(values: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         )
     unknown_root = set(values) - {"schema_version", "mesh"}
     if unknown_root:
-        raise ValueError(f"Unknown top-level mesh configuration keys: {sorted(unknown_root)}")
+        raise ValueError(
+            f"Unknown top-level mesh configuration keys: {sorted(unknown_root)}"
+        )
     mesh = values["mesh"]
     if not isinstance(mesh, dict):
         raise ValueError("mesh must be a configuration object.")
@@ -74,11 +86,15 @@ def _selected_mesh(values: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     inputs = mesh.pop("inputs", {})
     selected = mesh.pop("regular" if mode == "regular" else "voronoi", {})
     if not isinstance(inputs, dict) or not isinstance(selected, dict):
-        raise ValueError("mesh.inputs and the selected mode block must be configuration objects.")
+        raise ValueError(
+            "mesh.inputs and the selected mode block must be configuration objects."
+        )
     return mode, {**inputs, **selected, **mesh}
 
 
-def _without_subgrid(values: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+def _without_subgrid(
+    values: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Separate optional product tables before parsing the mesh builder config."""
     cleaned = dict(values)
     if "mesh" not in cleaned:
@@ -105,14 +121,33 @@ def build_regular_mesh(config: RegularMeshConfig) -> dict[str, Any]:
         if transform.a <= 0 or transform.e >= 0:
             raise ValueError("Regular meshes require a north-up raster grid.")
         dx, dy = abs(transform.a), abs(transform.e)
-        if not np.isclose(dx, dy, rtol=0, atol=1e-9 * max(dx, dy, 1)):
-            raise ValueError("Regular meshes require square raster cells.")
         if config.cell_size_m is not None and not np.isclose(
             dx, config.cell_size_m, rtol=0, atol=1e-9 * max(dx, 1)
         ):
             raise ValueError(
                 f"Configured regular cell size {config.cell_size_m:g} m does not match DEM {dx:g} m. "
                 "Resample during DEM conditioning, not during mesh packaging."
+            )
+        if config.cell_size_m is not None and not np.isclose(
+            dy, config.cell_size_m, rtol=0, atol=1e-9 * max(dy, 1)
+        ):
+            raise ValueError(
+                f"Configured regular cell size {config.cell_size_m:g} m does not match DEM "
+                f"height {dy:g} m. Resample during DEM conditioning, not during mesh packaging."
+            )
+        if config.cell_width_m is not None and not np.isclose(
+            dx, config.cell_width_m, rtol=0, atol=1e-9 * max(dx, 1)
+        ):
+            raise ValueError(
+                f"Configured regular cell width {config.cell_width_m:g} m does not match DEM "
+                f"width {dx:g} m. Resample during DEM conditioning, not during mesh packaging."
+            )
+        if config.cell_height_m is not None and not np.isclose(
+            dy, config.cell_height_m, rtol=0, atol=1e-9 * max(dy, 1)
+        ):
+            raise ValueError(
+                f"Configured regular cell height {config.cell_height_m:g} m does not match DEM "
+                f"height {dy:g} m. Resample during DEM conditioning, not during mesh packaging."
             )
         dem = source.read(1).astype(np.float64)
         valid = (source.read_masks(1) > 0) & np.isfinite(dem)
@@ -125,7 +160,9 @@ def build_regular_mesh(config: RegularMeshConfig) -> dict[str, Any]:
             "crs_wkt": source.crs.to_wkt(),
             "rows": source.height,
             "columns": source.width,
-            "cell_size_m": dx,
+            "cell_size_m": dx if np.isclose(dx, dy) else None,
+            "cell_width_m": dx,
+            "cell_height_m": dy,
             "cell_area_m2": dx * dy,
             "active_cell_count": int(valid.sum()),
             "bounds": list(source.bounds),
@@ -143,11 +180,27 @@ def build_regular_mesh(config: RegularMeshConfig) -> dict[str, Any]:
     resolved_path = reports_directory / "mesh_config_resolved.json"
     grid_path.write_text(json.dumps(product, indent=2), encoding="utf-8")
     topology = _write_regular_ugrid(
-        ugrid_path, geopackage_path, dem, valid, transform, crs,
+        ugrid_path,
+        geopackage_path,
+        dem,
+        valid,
+        transform,
+        crs,
     )
-    qa_path.write_text(json.dumps({**product, "passed": True}, indent=2), encoding="utf-8")
+    qa_path.write_text(
+        json.dumps({**product, "passed": True}, indent=2), encoding="utf-8"
+    )
     resolved_path.write_text(
-        json.dumps({"mesh": {"mode": "regular", "inputs": {"dem": str(config.dem), "out_dir": str(config.out_dir)}, "regular": {"cell_size_m": dx}}}, indent=2),
+        json.dumps(
+            {
+                "mesh": {
+                    "mode": "regular",
+                    "inputs": {"dem": str(config.dem), "out_dir": str(config.out_dir)},
+                    "regular": {"cell_width_m": dx, "cell_height_m": dy},
+                }
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
     return {
@@ -203,11 +256,14 @@ def _write_regular_ugrid(
 
     edge_nodes = np.asarray(list(edge_owners), dtype=np.int32)
     owner = np.asarray([items[0] for items in edge_owners.values()], dtype=np.int32)
-    neighbor = np.asarray([
-        items[1] if len(items) == 2 else -1 for items in edge_owners.values()
-    ], dtype=np.int32)
+    neighbor = np.asarray(
+        [items[1] if len(items) == 2 else -1 for items in edge_owners.values()],
+        dtype=np.int32,
+    )
     if any(len(items) > 2 for items in edge_owners.values()):
-        raise ValueError("Regular mesh contains a non-manifold face shared by more than two cells.")
+        raise ValueError(
+            "Regular mesh contains a non-manifold face shared by more than two cells."
+        )
     x0, y0 = node_x[edge_nodes[:, 0]], node_y[edge_nodes[:, 0]]
     x1, y1 = node_x[edge_nodes[:, 1]], node_y[edge_nodes[:, 1]]
     midpoint_x, midpoint_y = 0.5 * (x0 + x1), 0.5 * (y0 + y1)
@@ -250,11 +306,16 @@ def _write_regular_ugrid(
         topology.edge_node_connectivity = "mesh2d_edge_nodes"
         topology.face_coordinates = "mesh2d_face_x mesh2d_face_y"
         face_nodes = dataset.createVariable(
-            "mesh2d_face_nodes", "i4", ("face", "max_face_nodes"), fill_value=-1,
+            "mesh2d_face_nodes",
+            "i4",
+            ("face", "max_face_nodes"),
+            fill_value=-1,
         )
         face_nodes.start_index = 0
         face_nodes[:] = connectivity
-        saved_edge_nodes = dataset.createVariable("mesh2d_edge_nodes", "i4", ("edge", "two"))
+        saved_edge_nodes = dataset.createVariable(
+            "mesh2d_edge_nodes", "i4", ("edge", "two")
+        )
         saved_edge_nodes.start_index = 0
         saved_edge_nodes[:] = edge_nodes
         for name, dimension, values, units in (
@@ -286,10 +347,16 @@ def _write_regular_ugrid(
         dataset.createVariable("cell_floodplain_fraction", "f8", ("face",))[:] = 0.0
         dataset.createVariable("cell_waterbody_fraction", "f8", ("face",))[:] = 0.0
         dataset.createVariable("cell_feature_class", str, ("face",))[:] = np.full(
-            n_cells, "regular", dtype=object,
+            n_cells,
+            "regular",
+            dtype=object,
         )
 
-    for sidecar in (geopackage_path, Path(f"{geopackage_path}-wal"), Path(f"{geopackage_path}-shm")):
+    for sidecar in (
+        geopackage_path,
+        Path(f"{geopackage_path}-wal"),
+        Path(f"{geopackage_path}-shm"),
+    ):
         sidecar.unlink(missing_ok=True)
     polygons = [
         box(
@@ -326,14 +393,18 @@ def write_conservative_overlap(
     """Write exact polygon/raster overlap weights used by MATLAB and Python."""
     mesh_file, mesh_geopackage = Path(mesh_file), Path(mesh_geopackage)
     raster_file, output_file = Path(raster_file), Path(output_file)
-    polygons = gpd.read_file(mesh_geopackage, layer="mesh", columns=["face_id", "geometry"])
+    polygons = gpd.read_file(
+        mesh_geopackage, layer="mesh", columns=["face_id", "geometry"]
+    )
     polygons = polygons.sort_values("face_id").reset_index(drop=True)
     if not np.array_equal(polygons.face_id.to_numpy(), np.arange(len(polygons))):
         raise ValueError("Mesh GeoPackage face_id must be contiguous and zero based.")
     geometry = polygons.geometry.to_numpy()
     tree = STRtree(geometry)
     with netCDF4.Dataset(mesh_file) as mesh_dataset:
-        mesh_area = np.asarray(mesh_dataset["cell_area_m2"][:], dtype=np.float64).reshape(-1)
+        mesh_area = np.asarray(
+            mesh_dataset["cell_area_m2"][:], dtype=np.float64
+        ).reshape(-1)
     if mesh_area.size != len(polygons):
         raise ValueError("UGRID and GeoPackage mesh cell counts differ.")
 
@@ -342,7 +413,9 @@ def write_conservative_overlap(
     overlap_areas: list[np.ndarray] = []
     with rasterio.open(raster_file) as raster:
         if polygons.crs is None or raster.crs is None or polygons.crs != raster.crs:
-            raise ValueError("Mesh and overlap raster must have the same projected CRS.")
+            raise ValueError(
+                "Mesh and overlap raster must have the same projected CRS."
+            )
         transform = raster.transform
         if abs(transform.b) > 1e-12 or abs(transform.d) > 1e-12:
             raise ValueError("Conservative overlap requires an unrotated raster grid.")
@@ -358,25 +431,61 @@ def write_conservative_overlap(
             south_rows = np.arange(south_start, south_stop, dtype=np.int64)
             columns_index = np.arange(columns, dtype=np.int64)
             rr, cc = np.meshgrid(south_rows, columns_index, indexing="ij")
-            cells = box(x_edges[cc.ravel()], y_edges[rr.ravel()], x_edges[cc.ravel() + 1], y_edges[rr.ravel() + 1])
+            cells = box(
+                x_edges[cc.ravel()],
+                y_edges[rr.ravel()],
+                x_edges[cc.ravel() + 1],
+                y_edges[rr.ravel() + 1],
+            )
             pairs = tree.query(cells, predicate="intersects")
             if not pairs.size:
                 continue
-            areas = area(intersection(cells[pairs[0]], geometry[pairs[1]])).astype(np.float64)
+            areas = area(intersection(cells[pairs[0]], geometry[pairs[1]])).astype(
+                np.float64
+            )
             keep = areas > max(pixel_area, 1.0) * 1e-12
             mesh_indices.append(pairs[1, keep].astype(np.int32))
-            raster_indices.append((rr.ravel()[pairs[0, keep]] * columns + cc.ravel()[pairs[0, keep]]).astype(np.int64))
+            raster_indices.append(
+                (
+                    rr.ravel()[pairs[0, keep]] * columns + cc.ravel()[pairs[0, keep]]
+                ).astype(np.int64)
+            )
             overlap_areas.append(areas[keep])
         raster_area = np.full(rows * columns, pixel_area, dtype=np.float64)
 
-    mesh_index = np.concatenate(mesh_indices) if mesh_indices else np.empty(0, dtype=np.int32)
-    raster_index = np.concatenate(raster_indices) if raster_indices else np.empty(0, dtype=np.int64)
-    overlap_area = np.concatenate(overlap_areas) if overlap_areas else np.empty(0, dtype=np.float64)
+    mesh_index = (
+        np.concatenate(mesh_indices) if mesh_indices else np.empty(0, dtype=np.int32)
+    )
+    raster_index = (
+        np.concatenate(raster_indices)
+        if raster_indices
+        else np.empty(0, dtype=np.int64)
+    )
+    overlap_area = (
+        np.concatenate(overlap_areas)
+        if overlap_areas
+        else np.empty(0, dtype=np.float64)
+    )
+    covered = np.bincount(mesh_index, weights=overlap_area, minlength=mesh_area.size)
+    absolute_error = np.abs(covered - mesh_area)
+    relative_error = absolute_error / np.maximum(mesh_area, 1e-12)
+    maximum_raw_error = float(relative_error.max(initial=0.0))
+    maximum_absolute_error = float(absolute_error.max(initial=0.0))
+    # GEOS can leave millimetre-scale area residues around clipped Voronoi edges.
+    # Normalize only when both the absolute and relative discrepancies are negligible.
+    roundoff = (absolute_error <= 1e-1) & (relative_error <= 1e-5)
+    invalid = (covered <= 0.0) | ~roundoff
+    if np.any(invalid):
+        raise ValueError(
+            "Conservative overlap does not cover every mesh cell; "
+            f"maximum relative error={maximum_raw_error:.3g}; "
+            f"maximum absolute error={maximum_absolute_error:.3g} m2."
+        )
+    if overlap_area.size:
+        overlap_area *= (mesh_area / covered)[mesh_index]
     covered = np.bincount(mesh_index, weights=overlap_area, minlength=mesh_area.size)
     relative_error = np.abs(covered - mesh_area) / np.maximum(mesh_area, 1e-12)
     maximum_error = float(relative_error.max(initial=0.0))
-    if maximum_error > 1e-8:
-        raise ValueError(f"Conservative overlap does not cover every mesh cell; maximum relative error={maximum_error:.3g}.")
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with netCDF4.Dataset(output_file, "w") as dataset:
@@ -393,8 +502,12 @@ def write_conservative_overlap(
         dataset.createDimension("raster_cell", raster_area.size)
         dataset.createDimension("x_edge", x_edges.size)
         dataset.createDimension("y_edge", y_edges.size)
-        dataset.createVariable("overlap_mesh_index", "i4", ("overlap",), zlib=True)[:] = mesh_index
-        dataset.createVariable("overlap_raster_index", "i8", ("overlap",), zlib=True)[:] = raster_index
+        dataset.createVariable("overlap_mesh_index", "i4", ("overlap",), zlib=True)[
+            :
+        ] = mesh_index
+        dataset.createVariable("overlap_raster_index", "i8", ("overlap",), zlib=True)[
+            :
+        ] = raster_index
         for name, dimensions, values, units in (
             ("overlap_area_m2", ("overlap",), overlap_area, "m2"),
             ("mesh_area_m2", ("mesh_cell",), mesh_area, "m2"),
@@ -409,6 +522,7 @@ def write_conservative_overlap(
         "overlap": str(output_file),
         "overlap_count": int(overlap_area.size),
         "maximum_mesh_area_relative_error": maximum_error,
+        "maximum_mesh_area_relative_error_before_normalization": maximum_raw_error,
     }
 
 
@@ -463,12 +577,14 @@ def write_product_manifest(
             continue
         path = Path(value)
         if path.is_file():
-            records.append({
-                "role": role,
-                "path": str(path.resolve()),
-                "bytes": path.stat().st_size,
-                "sha256": _sha256(path),
-            })
+            records.append(
+                {
+                    "role": role,
+                    "path": str(path.resolve()),
+                    "bytes": path.stat().st_size,
+                    "sha256": _sha256(path),
+                }
+            )
     manifest = {
         "schema_version": MESH_PRODUCT_SCHEMA,
         "generated_utc": datetime.now(timezone.utc).isoformat(),
@@ -490,17 +606,27 @@ def build_mesh_product(values: dict[str, Any]) -> dict[str, Any]:
         config = RegularMeshConfig.from_mapping(selected)
         result_files = build_regular_mesh(config)
         overlap_path = config.out_dir / "mesh" / "hydropol_mesh_overlap.nc"
-        result_files.update(write_conservative_overlap(
-            result_files["ugrid"], result_files["geopackage"], config.dem, overlap_path,
-        ))
+        result_files.update(
+            write_conservative_overlap(
+                result_files["ugrid"],
+                result_files["geopackage"],
+                config.dem,
+                overlap_path,
+            )
+        )
         if subgrid_values and subgrid_values.get("enabled", True):
             normalized_subgrid = dict(subgrid_values)
             normalized_subgrid.setdefault("fine_dem", str(config.dem))
             subgrid_config = SubgridProductConfig.from_mapping(normalized_subgrid)
             subgrid_path = config.out_dir / "mesh" / subgrid_config.output_name
-            result_files.update(build_subgrid_product(
-                result_files["ugrid"], result_files["overlap"], subgrid_config, subgrid_path,
-            ))
+            result_files.update(
+                build_subgrid_product(
+                    result_files["ugrid"],
+                    result_files["overlap"],
+                    subgrid_config,
+                    subgrid_path,
+                )
+            )
         manifest_path = write_product_manifest(
             config.out_dir,
             result_files,
@@ -514,7 +640,9 @@ def build_mesh_product(values: dict[str, Any]) -> dict[str, Any]:
     if config.stop_after_step is not None:
         return {"schema_version": MESH_PRODUCT_SCHEMA, "mesh_mode": mode, **result}
     overlap_path = config.out_dir / "mesh" / "hydropol_mesh_overlap.nc"
-    overlap = write_conservative_overlap(result["ugrid"], result["geopackage"], config.dem, overlap_path)
+    overlap = write_conservative_overlap(
+        result["ugrid"], result["geopackage"], config.dem, overlap_path
+    )
     resolved_path = config.out_dir / "reports" / "mesh_config_resolved.json"
     resolved = {"mesh_mode": mode, **asdict(config)}
     result_files = {
@@ -528,11 +656,21 @@ def build_mesh_product(values: dict[str, Any]) -> dict[str, Any]:
         normalized_subgrid.setdefault("fine_dem", str(config.dem))
         subgrid_config = SubgridProductConfig.from_mapping(normalized_subgrid)
         subgrid_path = config.out_dir / "mesh" / subgrid_config.output_name
-        result_files.update(build_subgrid_product(
-            result["ugrid"], overlap["overlap"], subgrid_config, subgrid_path,
-        ))
-        resolved["subgrid"] = {key: str(value) if isinstance(value, Path) else value for key, value in asdict(subgrid_config).items()}
-    resolved_path.write_text(json.dumps(resolved, indent=2, default=str), encoding="utf-8")
+        result_files.update(
+            build_subgrid_product(
+                result["ugrid"],
+                overlap["overlap"],
+                subgrid_config,
+                subgrid_path,
+            )
+        )
+        resolved["subgrid"] = {
+            key: str(value) if isinstance(value, Path) else value
+            for key, value in asdict(subgrid_config).items()
+        }
+    resolved_path.write_text(
+        json.dumps(resolved, indent=2, default=str), encoding="utf-8"
+    )
     result_files["resolved_config"] = str(resolved_path)
     manifest_path = write_product_manifest(
         config.out_dir,
@@ -544,8 +682,15 @@ def build_mesh_product(values: dict[str, Any]) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Build a regular or Voronoi HydroPol mesh product.")
-    parser.add_argument("--config", required=True, type=Path, help="JSON/TOML mesh-product configuration.")
+    parser = argparse.ArgumentParser(
+        description="Build a regular or Voronoi HydroPol mesh product."
+    )
+    parser.add_argument(
+        "--config",
+        required=True,
+        type=Path,
+        help="JSON/TOML mesh-product configuration.",
+    )
     args = parser.parse_args(argv)
     print(json.dumps(build_mesh_product(load_config_file(args.config)), indent=2))
 

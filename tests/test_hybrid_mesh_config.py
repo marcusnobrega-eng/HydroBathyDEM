@@ -1,6 +1,8 @@
 from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
+import rasterio
 from affine import Affine
 from pytest import approx
 from shapely import unary_union
@@ -19,8 +21,10 @@ from dem_processing.hybrid_mesh import (
     hole_free_parts,
     insert_hanging_nodes,
     internal_unpaired_edges,
+    generate_computation_points,
     split_cells_without_interior_centroid,
     split_self_touching_cells,
+    self_paired_cell_indices,
     substitute_river_strip,
     _fold_limited_half_width,
     _river_reach_paths,
@@ -30,6 +34,7 @@ from dem_processing.hybrid_mesh import (
     _bad_face_seed_removals,
     connected_hand_with_reach,
     _clip_cells_to_feature_polygon,
+    _cell_bed_elevation,
     _edge_quality,
     _polygons_from_seeds,
     _physical_river_geometry,
@@ -38,6 +43,7 @@ from dem_processing.hybrid_mesh import (
     _feature_classes,
     _fraction_refined_feature_classes,
     graded_row_plan,
+    river_graded_seeds,
     _geometry_area_fractions,
     _needs_d4_routing,
     _needs_reach_labels,
@@ -52,11 +58,101 @@ from dem_processing.hybrid_mesh import (
     _undersized_cell_repair_pairs,
     _smoothed_floodplain_connector_tangents,
     _topology,
+    _vector_line_mask,
+    _vector_river_records,
     _write_ugrid,
     receiver_from_d4_direction,
     receiver_from_d8_direction,
 )
 from dem_processing.mesh_product import _selected_mesh
+
+
+def test_cell_bed_elevation_repairs_nodata_centroid_from_cell_footprint() -> None:
+    dem = np.asarray([[1.0, np.nan], [3.0, 4.0]])
+    transform = Affine.translation(0, 2) * Affine.scale(1, -1)
+
+    result = _cell_bed_elevation([box(0, 1, 2, 2)], dem, transform)
+
+    assert result.tolist() == [1.0]
+
+
+def test_mapped_river_without_width_uses_configured_fallback(tmp_path: Path) -> None:
+    path = tmp_path / "rivers.geojson"
+    gpd.GeoDataFrame(
+        {"reach_id": [1]},
+        geometry=[LineString([(500005.0, 1999965.0), (500035.0, 1999995.0)])],
+        crs="EPSG:32643",
+    ).to_file(path, driver="GeoJSON")
+
+    records = _vector_river_records(
+        path,
+        "width_m",
+        "EPSG:32643",
+        box(500000.0, 1999960.0, 500040.0, 2000000.0),
+        np.arange(16, dtype=float).reshape(4, 4),
+        Affine.translation(500000.0, 2000000.0) * Affine.scale(10.0, -10.0),
+        12.0,
+    )
+
+    assert records[0][2] == 12.0
+
+
+def test_graded_rows_uses_the_supplied_vector_river(tmp_path: Path) -> None:
+    dem_path = tmp_path / "dem.tif"
+    transform = Affine.translation(500000.0, 4100000.0) * Affine.scale(10.0, -10.0)
+    with rasterio.open(
+        dem_path,
+        "w",
+        driver="GTiff",
+        height=12,
+        width=12,
+        count=1,
+        dtype="float64",
+        crs="EPSG:32610",
+        transform=transform,
+        nodata=-9999.0,
+    ) as target:
+        target.write(np.add.outer(np.arange(12.0), np.arange(12.0)), 1)
+    river_path = tmp_path / "rivers.geojson"
+    gpd.GeoDataFrame(
+        {"reach_id": [1]},
+        geometry=[LineString([(500055.0, 4099895.0), (500055.0, 4099995.0)])],
+        crs="EPSG:32610",
+    ).to_file(river_path, driver="GeoJSON")
+
+    points = generate_computation_points(HybridMeshConfig(
+        dem=dem_path,
+        out_dir=tmp_path / "mesh",
+        river_network=river_path,
+        background_width_m=30.0,
+        urban_width_m=30.0,
+        river_along_river_cell_length_m=10.0,
+        river_cross_river_target_width_m=10.0,
+        minimum_hydraulic_width_m=5.0,
+        floodplain_enabled=False,
+        river_cell_style="graded_rows",
+        write_diagnostics=False,
+    ))
+    sources = tuple(str(value) for value in points.source_id)
+
+    assert sum(value.startswith("river_core:") for value in sources) >= 10
+    assert sum(value.startswith("river_bank:") for value in sources) >= 16
+
+
+def test_mapped_river_is_rasterized_for_hand_and_floodplain(tmp_path: Path) -> None:
+    path = tmp_path / "rivers.geojson"
+    gpd.GeoDataFrame(
+        geometry=[LineString([(5.0, 5.0), (95.0, 95.0)])],
+        crs="EPSG:32610",
+    ).to_file(path, driver="GeoJSON")
+    transform = Affine.translation(0.0, 100.0) * Affine.scale(10.0, -10.0)
+
+    mask = _vector_line_mask(
+        path, "EPSG:32610", box(0.0, 0.0, 100.0, 100.0), (10, 10), transform,
+    )
+
+    assert mask.any()
+    assert np.count_nonzero(mask) >= 10
 
 
 def test_floodplain_defaults_to_isotropic_refinement() -> None:
@@ -531,6 +627,21 @@ def test_graded_row_plan_never_breaks_the_size_ratio() -> None:
     assert graded_row_plan(200.0, 30.0, 2.0) == []         # channel already coarser
 
 
+def test_graded_river_places_guard_points_at_both_nominal_banks() -> None:
+    channel, supports, _ = river_graded_seeds(
+        [(1, LineString([(0.0, 0.0), (100.0, 0.0)]), np.full(2, 10.0))],
+        along_m=10.0,
+        cross_target_m=10.0,
+        minimum_width_m=5.0,
+        maximum_target_m=20.0,
+        size_ratio=2.0,
+        domain=box(-50.0, -50.0, 150.0, 50.0),
+    )
+
+    assert np.allclose(np.unique(channel[:, 1]), [0.0])
+    assert np.isclose(np.min(np.abs(supports[:, 1])), 10.0)
+
+
 def test_river_cell_style_is_a_grouped_river_parameter() -> None:
     config = HybridMeshConfig.from_mapping(
         {"inputs": {"dem": "dem.tif", "out_dir": "out"}, "rivers": {"cell_style": "voronoi"}}
@@ -745,6 +856,27 @@ def test_self_touching_cell_stops_being_its_own_neighbour() -> None:
     result, _ = split_self_touching_cells([pinched])
     assert not _self_paired_cells(result)
     assert all(item.is_valid and item.area > 0 for item in result)
+
+
+def test_topology_despikes_ring_created_by_export_rounding() -> None:
+    """Sub-grid coordinate differences must not become self-neighbour faces."""
+    polygon = Polygon((
+        (0.0, 0.0),
+        (20.0, 0.0),
+        (20.00004, 10.0),
+        (15.0, 8.0),
+        (20.0, 10.00004),
+        (20.0, 20.0),
+        (0.0, 20.0),
+    ))
+    assert polygon.is_valid
+
+    faces, edges = _topology([polygon])
+
+    normalized = Polygon(faces[0])
+    assert normalized.is_valid
+    assert self_paired_cell_indices([normalized]).size == 0
+    assert all(owners != [0, 0] for owners in edges.values())
 
 
 def test_degenerate_fragment_is_absorbed_by_its_largest_neighbour() -> None:
