@@ -6,6 +6,8 @@ import argparse
 import hashlib
 import json
 import subprocess
+import sys
+import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -536,6 +538,15 @@ def _sha256(path: Path) -> str:
 
 def _source_provenance() -> dict[str, Any]:
     repository = Path(__file__).resolve().parents[2]
+    provenance = {
+        "version": __version__,
+        "repository": str(repository),
+        "commit": None,
+        "branch": None,
+        "dirty": None,
+    }
+    if getattr(sys, "frozen", False) or threading.current_thread() is not threading.main_thread():
+        return provenance
 
     def run(*args: str) -> str | None:
         try:
@@ -550,13 +561,12 @@ def _source_provenance() -> dict[str, Any]:
         return completed.stdout.strip()
 
     status = run("status", "--porcelain")
-    return {
-        "version": __version__,
-        "repository": str(repository),
-        "commit": run("rev-parse", "HEAD"),
-        "branch": run("branch", "--show-current") or None,
-        "dirty": bool(status) if status is not None else None,
-    }
+    provenance.update(
+        commit=run("rev-parse", "HEAD"),
+        branch=run("branch", "--show-current") or None,
+        dirty=bool(status) if status is not None else None,
+    )
+    return provenance
 
 
 def _configuration_sha256(values: dict[str, Any]) -> str:

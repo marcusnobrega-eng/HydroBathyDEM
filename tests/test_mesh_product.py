@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 import geopandas as gpd
@@ -10,11 +11,27 @@ from rasterio.transform import from_origin
 from shapely.geometry import box
 
 from dem_processing.mesh_product import (
+    _source_provenance,
     _selected_mesh,
     _without_subgrid,
     build_mesh_product,
     write_conservative_overlap,
 )
+
+
+def test_source_provenance_does_not_fork_from_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "dem_processing.mesh_product.subprocess.run",
+        lambda *_args, **_kwargs: pytest.fail("worker attempted to fork"),
+    )
+    results = []
+    worker = threading.Thread(target=lambda: results.append(_source_provenance()))
+    worker.start()
+    worker.join()
+
+    assert results[0]["commit"] is None
 
 
 def _write_dem(path: Path) -> None:
