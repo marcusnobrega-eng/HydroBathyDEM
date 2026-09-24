@@ -25,7 +25,7 @@ def _write_dem(path: Path) -> None:
         target.write(np.asarray([[2.0, 1.0]]), 1)
 
 
-def _write_mesh(path: Path) -> str:
+def _write_mesh(path: Path, classes=("floodplain", "floodplain")) -> str:
     crs_wkt = rasterio.crs.CRS.from_epsg(32643).to_wkt()
     with netCDF4.Dataset(path, "w") as dataset:
         dataset.crs_wkt = crs_wkt
@@ -46,7 +46,7 @@ def _write_mesh(path: Path) -> str:
         dataset.createVariable("cell_area_m2", "f8", ("face",))[:] = [10_000.0, 10_000.0]
         dataset.createVariable("cell_bed_elevation_m", "f8", ("face",))[:] = [2.0, 1.0]
         feature = dataset.createVariable("cell_feature_class", str, ("face",))
-        feature[:] = np.asarray(["floodplain", "floodplain"], dtype=object)
+        feature[:] = np.asarray(classes, dtype=object)
     return crs_wkt
 
 
@@ -88,3 +88,29 @@ def test_build_subgrid_product_writes_shared_contract(tmp_path: Path) -> None:
         assert dataset["cell_volume_m3"].units == "m3"
         assert dataset["face_conveyance"].units == "m3 s-1"
         assert np.all(np.isfinite(dataset["face_conveyance"][:]))
+
+
+def test_river_policy_only_builds_detailed_river_rows(tmp_path: Path) -> None:
+    dem = tmp_path / "dem.tif"
+    mesh = tmp_path / "mesh.nc"
+    overlap = tmp_path / "overlap.nc"
+    output = tmp_path / "subgrid.nc"
+    _write_dem(dem)
+    crs_wkt = _write_mesh(mesh, classes=("river", "floodplain"))
+    _write_overlap(overlap, crs_wkt)
+
+    result = build_subgrid_product(
+        mesh,
+        overlap,
+        SubgridProductConfig(fine_dem=dem, policy="river", default_manning_n=0.05),
+        output,
+    )
+
+    assert result["subgrid_cell_count"] == 1
+    assert result["subgrid_profile_face_count"] == 0
+    with netCDF4.Dataset(output) as dataset:
+        assert dataset["cell_is_subgrid"][:].tolist() == [1, 0]
+        assert dataset["cell_point_count"][:].tolist() == [1, 1]
+        assert dataset["face_point_count"][:].tolist() == [1, 1, 1]
+        assert np.all(dataset["face_conveyance"][:] == 0.0)
+        assert np.all(dataset["cell_wet_area_m2"][1] == 10_000.0)
