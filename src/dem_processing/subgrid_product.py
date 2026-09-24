@@ -18,6 +18,8 @@ from .mesh_contract import (
     apply_contract_attributes,
 )
 from .subgrid_tables import (
+    CellVolumeTable,
+    FaceConveyanceTable,
     build_cell_volume_table,
     build_face_conveyance_table,
     subgrid_cell_policy,
@@ -70,6 +72,79 @@ def _sample_nearest(array: np.ndarray, inverse_transform: Any, x, y) -> np.ndarr
     row = np.clip(np.floor(rows).astype(np.int64), 0, array.shape[0] - 1)
     column = np.clip(np.floor(columns).astype(np.int64), 0, array.shape[1] - 1)
     return array[row, column]
+
+
+def _build_selected_cell_tables(
+    cell_index: np.ndarray,
+    overlap_area: np.ndarray,
+    patch_elevation: np.ndarray,
+    cell_area: np.ndarray,
+    cell_bed: np.ndarray,
+    mask: np.ndarray,
+) -> CellVolumeTable:
+    """Build detailed storage curves only for selected cells."""
+    active = np.flatnonzero(mask)
+    n_cells = len(cell_area)
+    if not active.size:
+        shape = (n_cells, 2)
+        return CellVolumeTable(
+            cell_bed.copy(),
+            np.zeros(shape),
+            np.zeros(shape),
+            np.broadcast_to(cell_area[:, None], shape).copy(),
+            np.ones(n_cells, dtype=np.int64),
+            cell_area.copy(),
+        )
+
+    local_index = np.full(n_cells, -1, dtype=np.int64)
+    local_index[active] = np.arange(active.size)
+    selected = mask[cell_index] & np.isfinite(patch_elevation) & (overlap_area > 0)
+    detailed = build_cell_volume_table(
+        local_index[cell_index[selected]],
+        overlap_area[selected],
+        patch_elevation[selected],
+        active.size,
+        cell_area[active],
+    )
+    width = detailed.zeta_m.shape[1]
+    shape = (n_cells, width)
+    zeta = np.zeros(shape)
+    volume = np.zeros(shape)
+    area = np.broadcast_to(cell_area[:, None], shape).copy()
+    datum = cell_bed.copy()
+    count = np.ones(n_cells, dtype=np.int64)
+    datum[active] = detailed.datum_m
+    zeta[active] = detailed.zeta_m
+    volume[active] = detailed.volume_m3
+    area[active] = detailed.area_m2
+    count[active] = detailed.count
+    return CellVolumeTable(datum, zeta, volume, area, count, cell_area.copy())
+
+
+def _expand_selected_face_tables(
+    detailed: FaceConveyanceTable,
+    active: np.ndarray,
+    floor: np.ndarray,
+    length: np.ndarray,
+) -> FaceConveyanceTable:
+    """Keep the full mesh contract while storing trivial rows off-river."""
+    n_faces = len(length)
+    width = detailed.zeta_m.shape[1] if active.size else 2
+    shape = (n_faces, width)
+    zeta = np.zeros(shape)
+    area = np.zeros(shape)
+    perimeter = np.zeros(shape)
+    conveyance = np.zeros(shape)
+    count = np.ones(n_faces, dtype=np.int64)
+    datum = floor.copy()
+    if active.size:
+        datum[active] = detailed.datum_m
+        zeta[active] = detailed.zeta_m
+        area[active] = detailed.area_m2
+        perimeter[active] = detailed.perimeter_m
+        conveyance[active] = detailed.conveyance
+        count[active] = detailed.count
+    return FaceConveyanceTable(datum, zeta, area, perimeter, conveyance, count, length.copy())
 
 
 def _write_tables(path: Path, cell_table, face_table, mask: np.ndarray, *, config, crs_wkt: str) -> None:
@@ -170,10 +245,8 @@ def build_subgrid_product(
     mask = subgrid_cell_policy(feature_class, config.policy)
     terrain_south_up = np.flipud(dem).reshape(-1)
     patch_elevation = terrain_south_up[raster_index]
-    good = np.isfinite(patch_elevation) & (overlap_area > 0)
-    cell_table = build_cell_volume_table(
-        cell_index[good], overlap_area[good], patch_elevation[good], len(cell_area), cell_area,
-        level_pool_mask=mask, cell_bed_mean_m=cell_bed,
+    cell_table = _build_selected_cell_tables(
+        cell_index, overlap_area, patch_elevation, cell_area, cell_bed, mask,
     )
 
     internal = neighbour >= 0
@@ -187,15 +260,9 @@ def build_subgrid_product(
     spacing = config.face_sample_spacing_m or min(abs(transform.a), abs(transform.e))
     offset = 0.5 * spacing
     inverse = ~transform
+    active_faces = np.flatnonzero(full_profile)
     profiles = []
-    for index in range(len(owner)):
-        if not full_profile[index]:
-            profiles.append((
-                np.asarray([0.0, length[index]]),
-                np.full(2, floor[index]),
-                np.full(2, config.default_manning_n),
-            ))
-            continue
+    for index in active_faces:
         point_count = max(3, int(np.ceil(length[index] / spacing)) + 1)
         station = np.linspace(-0.5 * length[index], 0.5 * length[index], point_count)
         tangent_x, tangent_y = -normal_y[index], normal_x[index]
@@ -215,7 +282,14 @@ def build_subgrid_product(
             np.isfinite(roughness) & (roughness > 0), roughness, config.default_manning_n
         )
         profiles.append((station - station[0], np.maximum(bed, floor[index]), roughness))
-    face_table = build_face_conveyance_table(profiles, length)
+    if active_faces.size:
+        detailed_faces = build_face_conveyance_table(profiles, length[active_faces])
+    else:
+        detailed_faces = FaceConveyanceTable(
+            np.zeros(0), np.zeros((0, 2)), np.zeros((0, 2)),
+            np.zeros((0, 2)), np.zeros((0, 2)), np.zeros(0, dtype=np.int64), np.zeros(0),
+        )
+    face_table = _expand_selected_face_tables(detailed_faces, active_faces, floor, length)
 
     low_cell_datum = np.minimum(cell_table.datum_m[owner], cell_table.datum_m[np.maximum(neighbour, 0)])
     datum_violations = int(np.count_nonzero(internal & ((low_cell_datum - face_table.datum_m) > 1e-6)))

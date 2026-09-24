@@ -21,7 +21,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import numpy as np
@@ -1013,7 +1013,7 @@ def main() -> None:
                 "",
                 "Diagnostics:",
                 "",
-                f"- `diagnostic_spatial_calibration_thresholds.png`: validation metrics across tested subcatchment thresholds.",
+                "- `diagnostic_spatial_calibration_thresholds.png`: validation metrics across tested subcatchment thresholds.",
                 f"- `diagnostic_spatial_calibration_{tag}.png`: Lin-area width/depth fits, sample counts, and local/global fallback map.",
                 f"- `diagnostic_spatial_calibration_d4_area_{tag}.png`: companion plots using matched FABDEM-D4 drainage area.",
                 "",

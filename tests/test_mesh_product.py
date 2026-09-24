@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 import geopandas as gpd
@@ -10,11 +11,27 @@ from rasterio.transform import from_origin
 from shapely.geometry import box
 
 from dem_processing.mesh_product import (
+    _source_provenance,
     _selected_mesh,
     _without_subgrid,
     build_mesh_product,
     write_conservative_overlap,
 )
+
+
+def test_source_provenance_does_not_fork_from_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "dem_processing.mesh_product.subprocess.run",
+        lambda *_args, **_kwargs: pytest.fail("worker attempted to fork"),
+    )
+    results = []
+    worker = threading.Thread(target=lambda: results.append(_source_provenance()))
+    worker.start()
+    worker.join()
+
+    assert results[0]["commit"] is None
 
 
 def _write_dem(path: Path) -> None:
@@ -62,13 +79,45 @@ def test_documented_regular_mode_packages_existing_grid(tmp_path: Path) -> None:
             np.hypot(dataset["edge_normal_x"][:], dataset["edge_normal_y"][:]), 1.0
         )
     manifest = json.loads(Path(result["manifest"]).read_text(encoding="utf-8"))
-    assert manifest["generator"]["version"] == "0.3.0"
+    assert manifest["generator"]["version"] == "0.4.0rc1"
     assert len(manifest["configuration_sha256"]) == 64
     assert {record["role"] for record in manifest["files"]} >= {
         "ugrid",
         "overlap",
         "geopackage",
     }
+
+
+def test_regular_mode_supports_rectangular_cells(tmp_path: Path) -> None:
+    dem = tmp_path / "rectangular_dem.tif"
+    with rasterio.open(
+        dem,
+        "w",
+        driver="GTiff",
+        width=2,
+        height=2,
+        count=1,
+        dtype="float32",
+        crs="EPSG:32643",
+        transform=from_origin(0, 100, 20, 10),
+        nodata=-9999.0,
+    ) as target:
+        target.write(np.ones((2, 2), dtype=np.float32), 1)
+    result = build_mesh_product(
+        {
+            "mesh": {
+                "mode": "regular",
+                "inputs": {"dem": str(dem), "out_dir": str(tmp_path / "rectangular")},
+                "regular": {"cell_width_m": 20, "cell_height_m": 10},
+            }
+        }
+    )
+    assert result["cell_width_m"] == 20
+    assert result["cell_height_m"] == 10
+    assert result["cell_size_m"] is None
+    with netCDF4.Dataset(result["ugrid"]) as dataset:
+        assert np.allclose(dataset["cell_area_m2"][:], 200.0)
+        assert np.allclose(dataset["cell_cfl_width_m"][:], 10.0)
 
 
 def test_regular_mode_can_publish_structured_subgrid_tables(tmp_path: Path) -> None:
@@ -173,7 +222,9 @@ def test_conservative_overlap_covers_each_polygon_exactly(tmp_path: Path) -> Non
         dataset.createDimension("face", 2)
         dataset.createVariable("cell_area_m2", "f8", ("face",))[:] = [10_000, 10_000]
 
-    result = write_conservative_overlap(mesh_nc, mesh_gpkg, dem, overlap, row_chunk_size=1)
+    result = write_conservative_overlap(
+        mesh_nc, mesh_gpkg, dem, overlap, row_chunk_size=1
+    )
     assert result["overlap_count"] == 2
     assert result["maximum_mesh_area_relative_error"] < 1e-12
     with netCDF4.Dataset(overlap) as dataset:
@@ -184,3 +235,36 @@ def test_conservative_overlap_covers_each_polygon_exactly(tmp_path: Path) -> Non
         assert dataset["overlap_raster_index"][:].tolist() == [0, 1]
         assert np.allclose(dataset["overlap_area_m2"][:], 10_000)
         assert dataset["overlap_area_m2"].units == "m2"
+
+
+def test_conservative_overlap_normalizes_tolerated_geometry_roundoff(tmp_path: Path) -> None:
+    dem = tmp_path / "dem.tif"
+    mesh_nc = tmp_path / "mesh.nc"
+    mesh_gpkg = tmp_path / "mesh.gpkg"
+    overlap = tmp_path / "overlap.nc"
+    _write_dem(dem)
+    polygons = gpd.GeoDataFrame(
+        {"face_id": [0, 1]},
+        geometry=[box(0, 0, 100, 100), box(100, 0, 200, 100)],
+        crs="EPSG:32643",
+    )
+    polygons.to_file(mesh_gpkg, layer="mesh", driver="GPKG")
+    expected = np.asarray([10_000.005, 9_999.995])
+    with netCDF4.Dataset(mesh_nc, "w") as dataset:
+        dataset.createDimension("face", 2)
+        dataset.createVariable("cell_area_m2", "f8", ("face",))[:] = expected
+
+    result = write_conservative_overlap(mesh_nc, mesh_gpkg, dem, overlap, row_chunk_size=1)
+
+    assert result["maximum_mesh_area_relative_error_before_normalization"] > 0.0
+    assert result["maximum_mesh_area_relative_error"] < 1e-12
+    with netCDF4.Dataset(overlap) as dataset:
+        mesh_index = np.asarray(dataset["overlap_mesh_index"][:], dtype=np.int64)
+        overlap_area = np.asarray(dataset["overlap_area_m2"][:], dtype=np.float64)
+        covered = np.bincount(mesh_index, weights=overlap_area, minlength=2)
+    assert np.allclose(covered, expected, rtol=0.0, atol=1e-10)
+
+    with netCDF4.Dataset(mesh_nc, "a") as dataset:
+        dataset["cell_area_m2"][:] = [10_001.0, 10_000.0]
+    with pytest.raises(ValueError, match="does not cover every mesh cell"):
+        write_conservative_overlap(mesh_nc, mesh_gpkg, dem, overlap, row_chunk_size=1)

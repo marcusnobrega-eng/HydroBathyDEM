@@ -782,7 +782,7 @@ But keep these alongside it for reproducibility:
 
 """
 
-CURRENT_DOCUMENTATION = f"""# DEM Conditioning Run Documentation
+CURRENT_DOCUMENTATION = """# DEM Conditioning Run Documentation
 
 This run was produced by HydroBathyDEM's packaged source layout in
 `src/dem_processing`.
@@ -2359,7 +2359,7 @@ def automatic_d4_hydraulic_channel_carving(
     default_grid_width = float(np.sqrt(cell_area_m2))
     grid_width = cfg.channel_cell_width_m if cfg.channel_cell_width_m else default_grid_width
 
-    print(f"[INFO] D4 flow only: cardinal neighbours N/S/E/W; no diagonal flow.")
+    print("[INFO] D4 flow only: cardinal neighbours N/S/E/W; no diagonal flow.")
     print(f"[INFO] cell size dx={dx:.3f} m, dy={dy:.3f} m")
     print(f"[INFO] effective channel cell width = {grid_width:.3f} m")
 

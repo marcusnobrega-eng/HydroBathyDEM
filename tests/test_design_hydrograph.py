@@ -35,7 +35,6 @@ def test_download_accepts_a_path_like_string_without_network() -> None:
 
 def test_d4_composite_cn_is_area_weighted_at_the_outlet() -> None:
     cn = np.array([[60.0, 80.0, 100.0]])
-    dem = np.array([[3.0, 2.0, 1.0]])
     receiver = np.array([[1, 2, -1]], dtype=np.int64)
     composite, area = _upstream_composite_cn(cn, receiver, np.array([0, 1, 2]), 1.0)
     assert np.allclose(composite, [[60.0, 70.0, 80.0]])
