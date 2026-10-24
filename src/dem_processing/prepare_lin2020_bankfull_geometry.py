@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import tempfile
 import subprocess
 from pathlib import Path
 from typing import Dict, Iterable, Tuple
@@ -34,7 +35,9 @@ from rasterio.warp import transform_bounds
 from shapely.geometry import box
 
 try:
-    os.environ.setdefault("MPLCONFIGDIR", "/private/tmp/dem_processing_matplotlib")
+    os.environ.setdefault(
+        "MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "dem_processing_matplotlib")
+    )
     os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
     import matplotlib
 

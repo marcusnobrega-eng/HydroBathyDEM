@@ -125,6 +125,7 @@ import argparse
 import heapq
 import json
 import os
+import tempfile
 import shutil
 import warnings
 from dataclasses import dataclass, asdict
@@ -147,7 +148,9 @@ except Exception:
     gpd = None
 
 try:
-    os.environ.setdefault("MPLCONFIGDIR", "/private/tmp/dem_processing_matplotlib")
+    os.environ.setdefault(
+        "MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "dem_processing_matplotlib")
+    )
     os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
     import matplotlib
 

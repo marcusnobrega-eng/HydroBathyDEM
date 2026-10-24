@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -31,7 +32,9 @@ from rasterio.transform import rowcol
 from scipy import ndimage
 
 try:
-    os.environ.setdefault("MPLCONFIGDIR", "/private/tmp/dem_processing_matplotlib")
+    os.environ.setdefault(
+        "MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "dem_processing_matplotlib")
+    )
     os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
     import matplotlib
 

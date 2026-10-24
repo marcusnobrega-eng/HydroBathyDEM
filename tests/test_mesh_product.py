@@ -10,6 +10,7 @@ import rasterio
 from rasterio.transform import from_origin
 from shapely.geometry import box
 
+import dem_processing
 from dem_processing.mesh_product import (
     _source_provenance,
     _selected_mesh,
@@ -79,7 +80,7 @@ def test_documented_regular_mode_packages_existing_grid(tmp_path: Path) -> None:
             np.hypot(dataset["edge_normal_x"][:], dataset["edge_normal_y"][:]), 1.0
         )
     manifest = json.loads(Path(result["manifest"]).read_text(encoding="utf-8"))
-    assert manifest["generator"]["version"] == "0.4.0rc1"
+    assert manifest["generator"]["version"] == dem_processing.__version__
     assert len(manifest["configuration_sha256"]) == 64
     assert {record["role"] for record in manifest["files"]} >= {
         "ugrid",
