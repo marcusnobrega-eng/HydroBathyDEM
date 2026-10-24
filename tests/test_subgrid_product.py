@@ -111,6 +111,13 @@ def test_river_policy_only_builds_detailed_river_rows(tmp_path: Path) -> None:
     with netCDF4.Dataset(output) as dataset:
         assert dataset["cell_is_subgrid"][:].tolist() == [1, 0]
         assert dataset["cell_point_count"][:].tolist() == [1, 1]
-        assert dataset["face_point_count"][:].tolist() == [1, 1, 1]
-        assert np.all(dataset["face_conveyance"][:] == 0.0)
+        counts = dataset["face_point_count"][:].tolist()
+        conveyance = np.asarray(dataset["face_conveyance"][:])
+        # Edge 0 joins the river cell to a floodplain cell and edge 2 is the floodplain
+        # cell's boundary: the solver never reads their tables, so they stay empty rows.
+        assert counts[0] == counts[2] == 1
+        assert np.all(conveyance[[0, 2]] == 0.0)
+        # Edge 1 is the river cell's boundary: the solver reads its table for stage,
+        # normal-depth and critical outlets, so it must carry water.
+        assert counts[1] > 1 and conveyance[1].max() > 0.0
         assert np.all(dataset["cell_wet_area_m2"][1] == 10_000.0)

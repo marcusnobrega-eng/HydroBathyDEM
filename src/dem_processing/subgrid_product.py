@@ -260,9 +260,21 @@ def build_subgrid_product(
     spacing = config.face_sample_spacing_m or min(abs(transform.a), abs(transform.e))
     offset = 0.5 * spacing
     inverse = ~transform
-    active_faces = np.flatnonzero(full_profile)
+    # The solver also reads the table of a BOUNDARY face whose owner is a sub-grid cell
+    # (stage, normal-depth and critical outlets), so those faces keep the flat profile at
+    # the cell datum they had before off-river faces were skipped; an empty row there
+    # would close the river's inflow and outflow edges.
+    boundary_table = ~internal & mask[owner]
+    active_faces = np.flatnonzero(full_profile | boundary_table)
     profiles = []
     for index in active_faces:
+        if not full_profile[index]:
+            profiles.append((
+                np.asarray([0.0, length[index]]),
+                np.full(2, floor[index]),
+                np.full(2, config.default_manning_n),
+            ))
+            continue
         point_count = max(3, int(np.ceil(length[index] / spacing)) + 1)
         station = np.linspace(-0.5 * length[index], 0.5 * length[index], point_count)
         tangent_x, tangent_y = -normal_y[index], normal_x[index]

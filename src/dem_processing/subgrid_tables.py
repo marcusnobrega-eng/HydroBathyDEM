@@ -452,6 +452,9 @@ def build_face_conveyance_table(
             "The dry-face problem it was meant to solve belongs in the solver, as a "
             "water-availability gate, not in the table."
         )
+    # Faces with the same panels give the same curves (flat faces of one length and
+    # roughness, for example): each distinct face is built once.
+    by_geometry: dict[bytes, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
     for face_index, (station, bed, rough) in enumerate(profiles):
         if len(station) < 2 or not np.isfinite(bed).any():
             datum[len(built)] = float(np.nanmin(bed)) if np.isfinite(bed).any() else 0.0
@@ -462,6 +465,16 @@ def build_face_conveyance_table(
         seg_bed = 0.5 * (bed[:-1] + bed[1:]) - z_ref
         seg_wet = np.hypot(seg_len, np.diff(bed))  # wetted length along the bed
         seg_n = np.maximum(0.5 * (rough[:-1] + rough[1:]), 1e-6)
+        key = b"".join(
+            np.ascontiguousarray(values, dtype=np.float64).tobytes()
+            for values in (seg_len, seg_bed, seg_wet, seg_n)
+        ) + np.int64(len(seg_len)).tobytes()
+        if key in by_geometry:
+            curves = by_geometry[key]
+            datum[len(built)] = z_ref
+            counts[len(built)] = len(curves[0])
+            built.append(curves)
+            continue
 
         def panels(zeta: float):
             depth = np.maximum(zeta - seg_bed, 0.0)
@@ -479,13 +492,21 @@ def build_face_conveyance_table(
             wet, _ = panels(zeta)
             return float(np.sum(seg_len[wet])) if wet.any() else 0.0
 
+        known: dict[float, float] = {}
+
         def conv_of(zeta: float) -> float:
+            # Each level's conveyance is computed once: the bisection asks for the
+            # same ends again and again.
+            if zeta in known:
+                return known[zeta]
             wet, depth = panels(zeta)
             if not wet.any():
+                known[zeta] = 0.0
                 return 0.0
             a = depth[wet] * seg_len[wet]
             p = np.maximum(seg_wet[wet], 1e-12)
-            return float(np.sum(a / seg_n[wet] * (a / p) ** (2.0 / 3.0)))
+            known[zeta] = value = float(np.sum(a / seg_n[wet] * (a / p) ** (2.0 / 3.0)))
+            return value
 
         # breakpoints: every distinct panel bed, thinned, plus freeboard above
         breaks = np.unique(np.round(seg_bed, 9))
@@ -515,19 +536,27 @@ def build_face_conveyance_table(
         ladder = span * np.logspace(-bottom_decades, 0.0, 6 * bottom_decades + 1)
         levels = sorted(set(np.r_[0.0, ladder, breaks, top].tolist()))
 
-        # HEC-RAS Face Conveyance Tol Ratio: bisect where linear K interpolation errs
+        # HEC-RAS Face Conveyance Tol Ratio: bisect where linear K interpolation errs.
+        # An interval that passed stays as it is, so it would pass again: each interval
+        # is tested once (the levels are exactly those of testing every one each round).
+        settled: set[tuple[float, float]] = set()
         for _ in range(14):
             if len(levels) >= max_points:
                 break
             added: list[float] = []
             for lo, hi in zip(levels[:-1], levels[1:], strict=True):
+                if (lo, hi) in settled:
+                    continue
                 mid = 0.5 * (lo + hi)
                 if hi - lo < 1e-9:
+                    settled.add((lo, hi))
                     continue
                 exact = conv_of(mid)
                 linear = 0.5 * (conv_of(lo) + conv_of(hi))
                 if exact > 0 and abs(linear - exact) > conveyance_tol * exact:
                     added.append(mid)
+                else:
+                    settled.add((lo, hi))
             if not added:
                 break
             levels = sorted(set(levels + added))
@@ -544,6 +573,7 @@ def build_face_conveyance_table(
             A[1:] = np.cumsum(W[:-1] * np.diff(levels))
         datum[len(built)] = z_ref
         counts[len(built)] = len(levels)
+        by_geometry[key] = (levels, A, P, K)
         built.append((levels, A, P, K))
 
     width = max(2, int(counts.max()))
