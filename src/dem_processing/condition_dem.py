@@ -446,6 +446,32 @@ It is not simply the estimated river depth. It is the equivalent one-cell DEM
 lowering depth that preserves approximate in-bank Manning conveyance when a
 subgrid river is represented inside one model cell.
 
+D8 river network:
+
+    --auto-rivers-d8
+
+replaces `--auto-rivers-d4` with the same detection on a D8 network: each
+cell drains to the steepest of its eight neighbours, the slope to a diagonal
+neighbour is taken over the diagonal distance, and a cardinal neighbour wins
+a tie. The routing surface floods through all eight neighbours, the
+channel-bed conditioning uses each link's real length for the minimum drop,
+and the outputs are named `D8_*` (in the `d8` folder) instead of `D4_*`.
+`D8_flow_direction.tif` uses ESRI codes: 1 east, 2 south-east, 4 south,
+8 south-west, 16 west, 32 north-west, 64 north, 128 north-east, 0 none.
+Export its geometry with `hydrobathydem-export-geometry --connectivity d8`.
+External river networks are D4 only for now.
+
+Rivers entering the DEM from outside:
+
+    --entry-upstream-areas entries.csv
+
+A DEM cut to a model domain does not hold the upstream basin of a river that
+enters it, so that river starts with almost no area and a small channel. The
+CSV gives one row per entry, `x`, `y` (the entry cell centre, DEM CRS) and
+`upstream_area_km2` (the area outside the DEM); the area is added at the entry
+cell and carried downstream, in D4 and D8, before width and depth are
+computed. `D4_entry_upstream_areas_used.csv` (or `D8_`) records the cells.
+
 
 ### Stage 4 — Optional vector stream burning
 
@@ -897,6 +923,11 @@ class DEMConditioningConfig:
 
     # Automatic synthetic river detection and hydraulic carving from D4 flow accumulation
     auto_rivers_d4: bool = False
+    # The same river detection on a D8 network (steepest of eight neighbours).
+    auto_rivers_d8: bool = False
+    # CSV of river entries (x, y, upstream_area_km2): area outside the DEM added
+    # where each river enters, so its width and depth reflect the whole basin.
+    entry_upstream_areas: Optional[str] = None
     river_geometry_source: str = "power_law"
     external_river_width_raster: Optional[str] = None
     external_river_depth_raster: Optional[str] = None
@@ -1328,20 +1359,24 @@ def summarize_delta(
 # D4 automatic river detection and hydraulic channel carving
 # =============================================================================
 
-def compute_d4_flow_accumulation(
+def compute_flow_accumulation(
     dem: np.ndarray,
     profile: dict,
     nodata: Optional[float],
+    *,
+    connectivity: str = "d4",
+    extra_cells: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Compute D4, not D8, flow accumulation.
+    Compute D4 or D8 steepest-descent flow accumulation.
 
-    D4 means each cell can drain only to one of the four cardinal neighbours:
-    north, south, west, or east. Diagonal routing is intentionally disabled.
+    D4 lets each cell drain only to one of its four cardinal neighbours. D8
+    also allows the four diagonal neighbours, with the slope taken over the
+    diagonal distance. A cardinal neighbour wins a tie with a diagonal one.
+    Cells with no lower neighbour become outlets/sinks.
 
-    The receiver is selected as the cardinal neighbour with the steepest
-    positive downslope gradient. Cells with no lower cardinal neighbour become
-    outlets/sinks.
+    ``extra_cells`` adds upstream area, in cells, where a river enters the
+    domain from outside the DEM; it is carried downstream like any other area.
 
     Returns
     -------
@@ -1350,6 +1385,8 @@ def compute_d4_flow_accumulation(
     receiver : 2D int64 array
         Flattened index of the receiver cell, or -1 if no receiver.
     """
+    if connectivity not in {"d4", "d8"}:
+        raise ValueError("connectivity must be 'd4' or 'd8'.")
     rows, cols = dem.shape
     dx, dy = get_cellsize(profile)
 
@@ -1387,12 +1424,25 @@ def compute_d4_flow_accumulation(
     # East receiver
     update_receiver((slice(None), slice(0, -1)), (slice(None), slice(1, None)), dx)
 
+    if connectivity == "d8":
+        diagonal = float(np.hypot(dx, dy))
+        # North-west, north-east, south-west, south-east receivers.
+        update_receiver((slice(1, None), slice(1, None)), (slice(0, -1), slice(0, -1)), diagonal)
+        update_receiver((slice(1, None), slice(0, -1)), (slice(0, -1), slice(1, None)), diagonal)
+        update_receiver((slice(0, -1), slice(1, None)), (slice(1, None), slice(0, -1)), diagonal)
+        update_receiver((slice(0, -1), slice(0, -1)), (slice(1, None), slice(1, None)), diagonal)
+
     flat_valid = valid.ravel()
     flat_z = z.ravel()
     flat_receiver = receiver.ravel()
 
     acc = np.zeros(rows * cols, dtype="float64")
     acc[flat_valid] = 1.0
+    if extra_cells is not None:
+        extra = np.asarray(extra_cells, dtype="float64").ravel()
+        if extra.size != acc.size:
+            raise ValueError("extra_cells must match the DEM grid.")
+        acc[flat_valid] += np.nan_to_num(extra[flat_valid], nan=0.0)
 
     valid_idx = np.flatnonzero(flat_valid)
     # Process from high to low elevation so upstream cells contribute to receivers.
@@ -1404,6 +1454,18 @@ def compute_d4_flow_accumulation(
             acc[rec] += acc[idx]
 
     return acc.reshape(rows, cols), receiver
+
+
+def compute_d4_flow_accumulation(
+    dem: np.ndarray,
+    profile: dict,
+    nodata: Optional[float],
+    extra_cells: Optional[np.ndarray] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Compute D4, not D8, flow accumulation (see :func:`compute_flow_accumulation`)."""
+    return compute_flow_accumulation(
+        dem, profile, nodata, connectivity="d4", extra_cells=extra_cells
+    )
 
 
 def receiver_to_d4_direction(receiver: np.ndarray) -> np.ndarray:
@@ -1427,6 +1489,92 @@ def receiver_to_d4_direction(receiver: np.ndarray) -> np.ndarray:
     direction[diff == cols] = 3.0
     direction[diff == -1] = 4.0
     return direction
+
+
+D8_DIRECTION_CODES = {
+    (0, 1): 1,  # east
+    (1, 1): 2,  # south-east
+    (1, 0): 4,  # south
+    (1, -1): 8,  # south-west
+    (0, -1): 16,  # west
+    (-1, -1): 32,  # north-west
+    (-1, 0): 64,  # north
+    (-1, 1): 128,  # north-east
+}
+
+
+def receiver_to_d8_direction(receiver: np.ndarray) -> np.ndarray:
+    """
+    Convert flattened receiver indices to ESRI D8 direction codes.
+
+    Codes:
+        0 = no receiver / local outlet
+        1 = east, 2 = south-east, 4 = south, 8 = south-west,
+        16 = west, 32 = north-west, 64 = north, 128 = north-east
+    """
+    rows, cols = receiver.shape
+    source_row, source_col = np.divmod(np.arange(rows * cols, dtype=np.int64), cols)
+    flat_receiver = receiver.ravel()
+    has = flat_receiver >= 0
+    target_row, target_col = np.divmod(np.where(has, flat_receiver, 0), cols)
+    row_step = np.where(has, target_row - source_row, 0)
+    col_step = np.where(has, target_col - source_col, 0)
+    direction = np.zeros(rows * cols, dtype="float32")
+    for (dr, dc), code in D8_DIRECTION_CODES.items():
+        direction[has & (row_step == dr) & (col_step == dc)] = float(code)
+    return direction.reshape(rows, cols)
+
+
+def receiver_link_length_m(receiver: np.ndarray, profile: dict) -> np.ndarray:
+    """Return each cell's distance to its receiver: one cell, or the diagonal.
+
+    A cardinal link keeps the historical ``min(dx, dy)`` so D4 conditioning is
+    unchanged; a D8 diagonal link uses ``hypot(dx, dy)``.
+    """
+    rows, cols = receiver.shape
+    dx, dy = get_cellsize(profile)
+    flat_receiver = receiver.ravel()
+    has = flat_receiver >= 0
+    source_row, source_col = np.divmod(np.arange(rows * cols, dtype=np.int64), cols)
+    target_row, target_col = np.divmod(np.where(has, flat_receiver, 0), cols)
+    diagonal = has & (target_row != source_row) & (target_col != source_col)
+    length = np.where(diagonal, float(np.hypot(dx, dy)), float(min(dx, dy)))
+    return length.reshape(rows, cols)
+
+
+def read_entry_upstream_cells(path: str, profile: dict, valid: np.ndarray) -> Tuple[np.ndarray, pd.DataFrame]:
+    """Read river-entry upstream areas and return them as extra cells per grid cell.
+
+    The CSV holds one row per entry: ``x`` and ``y`` in the DEM CRS (the entry
+    cell centre) and ``upstream_area_km2``, the river's area outside the DEM.
+    """
+    table = pd.read_csv(Path(path).expanduser())
+    missing = {"x", "y", "upstream_area_km2"} - set(table.columns)
+    if missing:
+        raise ValueError(f"Entry upstream-area table is missing columns: {sorted(missing)}")
+    rows, cols = valid.shape
+    dx, dy = get_cellsize(profile)
+    cell_area_km2 = dx * dy / 1_000_000.0
+    extra = np.zeros((rows, cols), dtype="float64")
+    records = []
+    inverse = ~profile["transform"]
+    for index, entry in table.iterrows():
+        area = float(entry["upstream_area_km2"])
+        if not np.isfinite(area) or area < 0.0:
+            raise ValueError(f"Entry {index} has an invalid upstream_area_km2: {area}")
+        column_f, row_f = inverse * (float(entry["x"]), float(entry["y"]))
+        row, column = int(np.floor(row_f)), int(np.floor(column_f))
+        if not (0 <= row < rows and 0 <= column < cols) or not valid[row, column]:
+            raise ValueError(f"Entry {index} at ({entry['x']}, {entry['y']}) is not on a valid DEM cell.")
+        extra[row, column] += area / cell_area_km2
+        records.append({
+            "entry": entry.get("entry_id", index),
+            "row": row,
+            "column": column,
+            "upstream_area_km2": area,
+            "added_cells": area / cell_area_km2,
+        })
+    return extra, pd.DataFrame(records)
 
 
 def _d4_line_cells(coords: np.ndarray, transform: Affine, shape: tuple[int, int]) -> list[int]:
@@ -1550,12 +1698,11 @@ def enforce_downstream_channel_surface(
     surface = dem.astype("float64", copy=True)
     flat_surface = surface.ravel()
     flat_receiver = receiver.ravel()
-    dx, dy = get_cellsize(profile)
-    drop = max(float(min_slope), 0.0) * min(dx, dy)
+    drop = max(float(min_slope), 0.0) * receiver_link_length_m(receiver, profile).ravel()
     for src in _directed_d4_order(valid, receiver):
         dst = flat_receiver[src]
         if dst >= 0 and valid.ravel()[dst]:
-            flat_surface[dst] = min(flat_surface[dst], flat_surface[src] - drop)
+            flat_surface[dst] = min(flat_surface[dst], flat_surface[src] - drop[src])
     adjustment = np.zeros_like(surface)
     adjustment[valid] = dem[valid] - surface[valid]
     return surface.astype("float32"), adjustment.astype("float32")
@@ -1741,11 +1888,12 @@ def write_d4_channel_bed_qa(
     receiver: np.ndarray,
     profile: dict,
     out_dir: Path,
+    prefix: str = "D4_",
 ) -> dict:
     """Write a static Neal channel-bed QA raster and a compact summary."""
     bed, sill = compute_d4_channel_bed_sills(dem, river_depth, river_mask, receiver)
-    write_raster(output_path(out_dir, "D4_Neal_channel_bed_elevation_m.tif"), bed.astype("float32"), profile, nodata=-9999.0)
-    write_raster(output_path(out_dir, "D4_Neal_channel_receiver_sill_m.tif"), sill.astype("float32"), profile, nodata=-9999.0)
+    write_raster(output_path(out_dir, f"{prefix}Neal_channel_bed_elevation_m.tif"), bed.astype("float32"), profile, nodata=-9999.0)
+    write_raster(output_path(out_dir, f"{prefix}Neal_channel_receiver_sill_m.tif"), sill.astype("float32"), profile, nodata=-9999.0)
 
     values = sill[np.isfinite(sill)]
     positive = values[values > 0.01]
@@ -1755,7 +1903,7 @@ def write_d4_channel_bed_qa(
         "channel_bed_receiver_sill_max_m": float(np.nanmax(positive)) if positive.size else 0.0,
         "channel_bed_receiver_sill_p99_m": float(np.nanpercentile(positive, 99)) if positive.size else 0.0,
     }
-    pd.DataFrame([summary]).to_csv(output_path(out_dir, "D4_Neal_channel_bed_QA_summary.csv"), index=False)
+    pd.DataFrame([summary]).to_csv(output_path(out_dir, f"{prefix}Neal_channel_bed_QA_summary.csv"), index=False)
     return summary
 
 
@@ -1772,6 +1920,9 @@ def condition_d4_channel_bed(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Deepen only downstream channel cells needed for a D4-descending bed.
 
+    The routine works on any receiver graph; a D8 diagonal link uses its
+    diagonal length for the minimum drop.
+
     The receiver graph is ordered from high to low routing elevation.  At each
     river link, the downstream bed is lowered only enough to preserve the
     requested minimum gradient.  A depth cap remains authoritative; residual
@@ -1781,8 +1932,7 @@ def condition_d4_channel_bed(
     if not (dem.shape == river_depth.shape == river_mask.shape == receiver.shape == routing_surface.shape):
         raise ValueError("D4 channel-bed conditioning inputs must have the same shape.")
 
-    dx, dy = get_cellsize(profile)
-    drop = max(float(min_slope), 0.0) * min(dx, dy)
+    drop = max(float(min_slope), 0.0) * receiver_link_length_m(receiver, profile).ravel()
     conditioned = river_depth.astype("float64", copy=True)
     valid = river_mask & np.isfinite(dem) & np.isfinite(conditioned) & (conditioned > 0)
     flat_valid = valid.ravel()
@@ -1812,7 +1962,7 @@ def condition_d4_channel_bed(
 
     for src in source:
         dst = flat_receiver[src]
-        max_downstream_bed = flat_dem[src] - flat_depth[src] - drop
+        max_downstream_bed = flat_dem[src] - flat_depth[src] - drop[src]
         required_depth = flat_dem[dst] - max_downstream_bed
         if required_depth > flat_depth[dst]:
             flat_depth[dst] = min(required_depth, cap)
@@ -1836,7 +1986,7 @@ def condition_d4_channel_surface(
     if not (dem.shape == river_depth.shape == river_mask.shape == receiver.shape):
         raise ValueError("D4 channel-surface conditioning inputs must have the same shape.")
 
-    drop = max(float(min_slope), 0.0) * min(get_cellsize(profile))
+    drop = max(float(min_slope), 0.0) * receiver_link_length_m(receiver, profile).ravel()
     surface = dem.astype("float64", copy=True)
     valid = river_mask & np.isfinite(surface) & np.isfinite(river_depth) & (river_depth > 0)
     flat_valid, flat_surface = valid.ravel(), surface.ravel()
@@ -1864,7 +2014,7 @@ def condition_d4_channel_surface(
         dst = flat_receiver[src]
         if dst < 0 or not flat_valid[dst]:
             continue
-        max_downstream_bed = flat_surface[src] - flat_depth[src] - drop
+        max_downstream_bed = flat_surface[src] - flat_depth[src] - drop[src]
         required = (flat_surface[dst] - flat_depth[dst]) - max_downstream_bed
         if required > 0:
             applied = min(required, max_lowering_m - lowering[dst])
@@ -1880,9 +2030,14 @@ def build_d4_monotonic_routing_surface(
     flat_increment: Optional[float],
     max_raise_m: Optional[float],
     exclude_outlet_mask: Optional[str] = None,
+    connectivity: str = "d4",
 ) -> Path:
     """
     Create a routing-only D4 surface with a bounded artificial rise to D4 outlets.
+
+    With ``connectivity="d8"`` the flood also steps to diagonal neighbours, so
+    the surface drains along D8 paths; outlets stay the cells with an exterior
+    face, as in D4.
 
     Whitebox conditioning is not guaranteed to leave a Float32 DEM with enough
     cardinal-neighbour relief for strict D4 routing. This priority-flood pass is
@@ -1922,7 +2077,7 @@ def build_d4_monotonic_routing_surface(
         excluded = valid & np.isfinite(excluded) & (excluded > 0)
         boundary &= ~excluded
         write_raster(
-            output_path(out_dir, "D4_routing_excluded_outlet_mask.tif"),
+            output_path(out_dir, f"{connectivity.upper()}_routing_excluded_outlet_mask.tif"),
             excluded.astype("float32"),
             profile,
             nodata=0.0,
@@ -1949,7 +2104,9 @@ def build_d4_monotonic_routing_surface(
     if max_raise_m is not None:
         print(f"[INFO] D4 routing maximum artificial raise = {float(max_raise_m):g} m")
 
-    neighbour_offsets = (-cols, cols, -1, 1)
+    neighbour_steps = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    if connectivity == "d8":
+        neighbour_steps += [(-1, -1), (-1, 1), (1, -1), (1, 1)]
     processed = 0
     while heap:
         elev, idx = heapq.heappop(heap)
@@ -1957,16 +2114,11 @@ def build_d4_monotonic_routing_surface(
         c = idx - r * cols
         processed += 1
 
-        for offset in neighbour_offsets:
-            nidx = idx + offset
-            if offset == -cols and r == 0:
+        for dr, dc in neighbour_steps:
+            nr, nc = r + dr, c + dc
+            if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
                 continue
-            if offset == cols and r == rows - 1:
-                continue
-            if offset == -1 and c == 0:
-                continue
-            if offset == 1 and c == cols - 1:
-                continue
+            nidx = nr * cols + nc
             if flat_visited[nidx] or not flat_valid[nidx]:
                 continue
 
@@ -1982,7 +2134,7 @@ def build_d4_monotonic_routing_surface(
         warnings.warn(f"D4 routing surface left {int(missing.sum())} valid cells unvisited.")
         filled[missing] = dem[missing]
 
-    out_path = output_path(out_dir, "DEM_D4_monotonic_routing_surface.tif")
+    out_path = output_path(out_dir, f"DEM_{connectivity.upper()}_monotonic_routing_surface.tif")
     write_raster(out_path, filled.astype("float32"), profile, nodata=nodata)
     print(f"[INFO] D4 routing cells processed = {processed:,}")
     print(f"[SAVED] {out_path}")
@@ -2352,7 +2504,9 @@ def automatic_d4_hydraulic_channel_carving(
 
     where A is upstream area in km2.
     """
-    print_header("Automatic D4 river detection and hydraulic channel carving")
+    connectivity = river_connectivity(cfg)
+    prefix = f"{connectivity.upper()}_"
+    print_header(f"Automatic {connectivity.upper()} river detection and hydraulic channel carving")
 
     dem_route, profile = read_raster(routing_dem)
     nodata = profile.get("nodata", -9999.0)
@@ -2362,7 +2516,10 @@ def automatic_d4_hydraulic_channel_carving(
     default_grid_width = float(np.sqrt(cell_area_m2))
     grid_width = cfg.channel_cell_width_m if cfg.channel_cell_width_m else default_grid_width
 
-    print("[INFO] D4 flow only: cardinal neighbours N/S/E/W; no diagonal flow.")
+    if connectivity == "d8":
+        print("[INFO] D8 flow: eight neighbours; diagonal slopes over the diagonal distance.")
+    else:
+        print("[INFO] D4 flow only: cardinal neighbours N/S/E/W; no diagonal flow.")
     print(f"[INFO] cell size dx={dx:.3f} m, dy={dy:.3f} m")
     print(f"[INFO] effective channel cell width = {grid_width:.3f} m")
 
@@ -2382,7 +2539,16 @@ def automatic_d4_hydraulic_channel_carving(
         acc_cells = fac_area * 1_000_000.0 / cell_area_m2
         print(f"[INFO] directed external river network = {cfg.external_river_network}")
     else:
-        acc_cells, receiver = compute_d4_flow_accumulation(dem_route, profile, nodata)
+        extra_cells = None
+        if cfg.entry_upstream_areas:
+            extra_cells, entries = read_entry_upstream_cells(
+                cfg.entry_upstream_areas, profile, valid_mask(dem_route, nodata)
+            )
+            entries.to_csv(output_path(out_dir, f"{prefix}entry_upstream_areas_used.csv"), index=False)
+            print(f"[INFO] river entries with outside upstream area = {len(entries)}")
+        acc_cells, receiver = compute_flow_accumulation(
+            dem_route, profile, nodata, connectivity=connectivity, extra_cells=extra_cells
+        )
         fac_area = acc_cells * cell_area_m2 / 1_000_000.0
         river_mask = np.isfinite(fac_area) & (fac_area >= cfg.min_area)
     n_river = int(river_mask.sum())
@@ -2390,7 +2556,7 @@ def automatic_d4_hydraulic_channel_carving(
 
     print(f"[INFO] min upstream area threshold = {cfg.min_area:.6g} km2")
     print(f"[INFO] auto river cells = {n_river} ({100*n_river/max(n_valid,1):.4f}% of valid DEM)")
-    print(f"[INFO] D4 network derived from conditioned DEM: {routing_dem}")
+    print(f"[INFO] {connectivity.upper()} network derived from conditioned DEM: {routing_dem}")
 
     pos = river_mask & np.isfinite(fac_area) & (fac_area > 0)
     B_power, H_power = estimate_power_law_geometry(
@@ -2551,25 +2717,25 @@ def automatic_d4_hydraulic_channel_carving(
             cfg.channel_bed_min_slope,
         )
         write_raster(
-            output_path(out_dir, "D4_external_river_profile_source_surface_m.tif"),
+            output_path(out_dir, f"{prefix}external_river_profile_source_surface_m.tif"),
             source_profile_surface,
             source_profile,
             nodata=-9999.0,
         )
         write_raster(
-            output_path(out_dir, "D4_external_river_profile_source_lowering_m.tif"),
+            output_path(out_dir, f"{prefix}external_river_profile_source_lowering_m.tif"),
             source_lowering,
             source_profile,
             nodata=-9999.0,
         )
         write_raster(
-            output_path(out_dir, "D4_external_river_corridor_surface_m.tif"),
+            output_path(out_dir, f"{prefix}external_river_corridor_surface_m.tif"),
             channel_surface,
             base_profile,
             nodata=-9999.0,
         )
         write_raster(
-            output_path(out_dir, "D4_external_river_corridor_lowering_m.tif"),
+            output_path(out_dir, f"{prefix}external_river_corridor_lowering_m.tif"),
             corridor_lowering,
             base_profile,
             nodata=-9999.0,
@@ -2579,7 +2745,7 @@ def automatic_d4_hydraulic_channel_carving(
             "profile_lowered_cells": int(values.size),
             "profile_lowering_max_m": float(np.nanmax(values)) if values.size else 0.0,
             "profile_lowering_p99_m": float(np.nanpercentile(values, 99)) if values.size else 0.0,
-        }]).to_csv(output_path(out_dir, "D4_external_river_profile_QA_summary.csv"), index=False)
+        }]).to_csv(output_path(out_dir, f"{prefix}external_river_profile_QA_summary.csv"), index=False)
     channel_depth_adjustment = np.zeros_like(H, dtype="float32")
     if cfg.condition_d4_channel_bed:
         H, channel_depth_adjustment = condition_d4_channel_bed(
@@ -2595,7 +2761,7 @@ def automatic_d4_hydraulic_channel_carving(
         )
         H[~river_mask] = 0.0
         write_raster(
-            output_path(out_dir, "D4_Neal_channel_depth_adjustment_m.tif"),
+            output_path(out_dir, f"{prefix}Neal_channel_depth_adjustment_m.tif"),
             channel_depth_adjustment,
             base_profile,
             nodata=-9999.0,
@@ -2612,7 +2778,7 @@ def automatic_d4_hydraulic_channel_carving(
             cfg.channel_bed_surface_max_lowering_m,
         )
         write_raster(
-            output_path(out_dir, "D4_Neal_channel_surface_lowering_m.tif"),
+            output_path(out_dir, f"{prefix}Neal_channel_surface_lowering_m.tif"),
             channel_surface_lowering,
             base_profile,
             nodata=-9999.0,
@@ -2647,46 +2813,48 @@ def automatic_d4_hydraulic_channel_carving(
         receiver,
         base_profile,
         out_dir,
+        prefix=prefix,
     )
 
     carved = channel_surface.copy()
     apply_mask = river_mask & valid_base & (H_abg > 0)
     carved[apply_mask] = carved[apply_mask] - H_abg[apply_mask]
 
-    out_dem = output_path(out_dir, "DEM_reduced_creeks_D4.tif")
+    out_dem = output_path(out_dir, f"DEM_reduced_creeks_{connectivity.upper()}.tif")
 
-    write_raster(output_path(out_dir, "D4_flow_direction.tif"), receiver_to_d4_direction(receiver), profile, nodata=0.0)
-    write_raster(output_path(out_dir, "D4_flow_accum_cells.tif"), acc_cells.astype("float32"), profile, nodata=-9999.0)
-    write_raster(output_path(out_dir, "D4_Wshed_Properties_fac_area_km2.tif"), fac_area.astype("float32"), profile, nodata=-9999.0)
-    write_raster(output_path(out_dir, "D4_idx_facc.tif"), river_mask.astype("float32"), profile, nodata=-9999.0)
-    write_raster(output_path(out_dir, "D4_Wshed_Properties_River_Width_m.tif"), B.astype("float32"), profile, nodata=-9999.0)
-    write_raster(output_path(out_dir, "D4_Wshed_Properties_River_Depth_m.tif"), H.astype("float32"), profile, nodata=-9999.0)
-    write_raster(output_path(out_dir, "D4_H_abg_m.tif"), H_abg.astype("float32"), profile, nodata=-9999.0)
+    direction = receiver_to_d8_direction(receiver) if connectivity == "d8" else receiver_to_d4_direction(receiver)
+    write_raster(output_path(out_dir, f"{prefix}flow_direction.tif"), direction, profile, nodata=0.0)
+    write_raster(output_path(out_dir, f"{prefix}flow_accum_cells.tif"), acc_cells.astype("float32"), profile, nodata=-9999.0)
+    write_raster(output_path(out_dir, f"{prefix}Wshed_Properties_fac_area_km2.tif"), fac_area.astype("float32"), profile, nodata=-9999.0)
+    write_raster(output_path(out_dir, f"{prefix}idx_facc.tif"), river_mask.astype("float32"), profile, nodata=-9999.0)
+    write_raster(output_path(out_dir, f"{prefix}Wshed_Properties_River_Width_m.tif"), B.astype("float32"), profile, nodata=-9999.0)
+    write_raster(output_path(out_dir, f"{prefix}Wshed_Properties_River_Depth_m.tif"), H.astype("float32"), profile, nodata=-9999.0)
+    write_raster(output_path(out_dir, f"{prefix}H_abg_m.tif"), H_abg.astype("float32"), profile, nodata=-9999.0)
     if external_network_used:
-        write_raster(output_path(out_dir, "D4_external_network_used.tif"), river_mask.astype("float32"), profile, nodata=-9999.0)
+        write_raster(output_path(out_dir, f"{prefix}external_network_used.tif"), river_mask.astype("float32"), profile, nodata=-9999.0)
     if cfg.river_geometry_source in {"external", "external_or_power_law"}:
         write_raster(
-            output_path(out_dir, "D4_external_geometry_available.tif"),
+            output_path(out_dir, f"{prefix}external_geometry_available.tif"),
             external_available.astype("float32"),
             profile,
             nodata=-9999.0,
         )
     if cfg.river_geometry_source in {"spatial_coefficients", "spatial_coefficients_or_power_law"}:
         write_raster(
-            output_path(out_dir, "D4_spatial_coefficients_used.tif"),
+            output_path(out_dir, f"{prefix}spatial_coefficients_used.tif"),
             spatial_coefficients_used.astype("float32"),
             profile,
             nodata=-9999.0,
         )
     write_raster(
-        output_path(out_dir, "D4_power_law_fallback_used.tif"),
+        output_path(out_dir, f"{prefix}power_law_fallback_used.tif"),
         fallback_used.astype("float32"),
         profile,
         nodata=-9999.0,
     )
     if cfg.river_geometry_source in {"external", "external_or_power_law"}:
         write_raster(
-            output_path(out_dir, "D4_external_geometry_used.tif"),
+            output_path(out_dir, f"{prefix}external_geometry_used.tif"),
             external_used.astype("float32"),
             profile,
             nodata=-9999.0,
@@ -2763,7 +2931,7 @@ def automatic_d4_hydraulic_channel_carving(
         })
 
     summary = pd.DataFrame(rows)
-    summary_path = output_path(out_dir, "D4_HydroPol2D_creek_reduction_summary.csv")
+    summary_path = output_path(out_dir, f"{prefix}HydroPol2D_creek_reduction_summary.csv")
     summary.to_csv(summary_path, index=False)
 
     print(f"[SAVED] {out_dem}")
@@ -3644,8 +3812,23 @@ def print_run_summary(cfg: DEMConditioningConfig, out_dir: Path) -> None:
     print(f"Residual filling       : {cfg.fill_residual_depressions}")
 
 
+def river_connectivity(cfg: DEMConditioningConfig) -> str:
+    """Return "d4" or "d8" for the automatic river detection of this run."""
+    if cfg.auto_rivers_d4 and cfg.auto_rivers_d8:
+        raise ValueError("Choose --auto-rivers-d4 or --auto-rivers-d8, not both.")
+    if cfg.auto_rivers_d8 and cfg.external_river_network:
+        raise ValueError("--auto-rivers-d8 does not support --external-river-network yet.")
+    if cfg.entry_upstream_areas and cfg.external_river_network:
+        raise ValueError(
+            "--entry-upstream-areas adds area to a DEM-traced network; an external "
+            "network already carries its own upstream areas."
+        )
+    return "d8" if cfg.auto_rivers_d8 else "d4"
+
+
 def run_pipeline(cfg: DEMConditioningConfig) -> None:
     check_dependencies()
+    river_connectivity(cfg)
 
     out_dir = resolve_output_dir(cfg)
     ensure_dir(out_dir)
@@ -3697,7 +3880,7 @@ def run_pipeline(cfg: DEMConditioningConfig) -> None:
         )
 
     terrain_before_vector_enforcement = hydrologic_conditioned
-    if cfg.auto_rivers_d4:
+    if cfg.auto_rivers_d4 or cfg.auto_rivers_d8:
         if cfg.external_river_network:
             d4_routing_surface = hydrologic_conditioned
         else:
@@ -3707,6 +3890,7 @@ def run_pipeline(cfg: DEMConditioningConfig) -> None:
                 cfg.breach_flat_increment,
                 cfg.d4_routing_max_raise_m,
                 cfg.d4_routing_exclude_outlet_mask,
+                connectivity=river_connectivity(cfg),
             )
         terrain_before_vector_enforcement = automatic_d4_hydraulic_channel_carving(
             cfg,
@@ -3826,6 +4010,10 @@ Print full documentation:
 
     p.add_argument("--auto-rivers-d4", action="store_true",
                    help="Automatically detect idx_facc using D4 flow accumulation and reduce DEM elevations in creeks.")
+    p.add_argument("--auto-rivers-d8", action="store_true",
+                   help="Same river detection on a D8 network (eight neighbours, diagonal slopes over the diagonal distance).")
+    p.add_argument("--entry-upstream-areas", default=None,
+                   help="CSV with x, y, upstream_area_km2 for rivers entering the DEM; the area is added at each entry cell.")
     p.add_argument(
         "--river-geometry-source",
         choices=[
@@ -3974,6 +4162,8 @@ Print full documentation:
     put("crossing_buffer_m", a.crossing_buffer_m, "--crossing-buffer-m")
     put("crossing_burn_depth_m", a.crossing_burn_depth_m, "--crossing-burn-depth-m")
     put("auto_rivers_d4", a.auto_rivers_d4, "--auto-rivers-d4")
+    put("auto_rivers_d8", a.auto_rivers_d8, "--auto-rivers-d8")
+    put("entry_upstream_areas", a.entry_upstream_areas, "--entry-upstream-areas")
     put("river_geometry_source", a.river_geometry_source, "--river-geometry-source")
     put("external_river_width_raster", a.external_river_width_raster, "--external-river-width-raster")
     put("external_river_depth_raster", a.external_river_depth_raster, "--external-river-depth-raster")

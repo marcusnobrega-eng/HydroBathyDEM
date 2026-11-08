@@ -158,23 +158,30 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--width", type=Path, default=None, help="Override river-width raster path.")
     parser.add_argument("--depth", type=Path, default=None, help="Override river-depth raster path.")
     parser.add_argument("--output-dem-name", default="DEM_conditioned_no_bathymetry.tif")
-    parser.add_argument("--output-width-name", default="D4_River_Width_river_cells_m.tif")
-    parser.add_argument("--output-depth-name", default="D4_River_Depth_river_cells_m.tif")
+    parser.add_argument("--output-width-name", default=None)
+    parser.add_argument("--output-depth-name", default=None)
+    parser.add_argument(
+        "--connectivity",
+        choices=["d4", "d8"],
+        default="d4",
+        help="River network of the conditioning run: picks the D4_ or D8_ mask, width and depth.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing export rasters.")
     return parser.parse_args(argv)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
+    prefix = args.connectivity.upper()
     summary = export_geometry_only_products(
         args.out_dir,
         dem_path=args.dem,
-        mask_path=args.river_mask,
-        width_path=args.width,
-        depth_path=args.depth,
+        mask_path=args.river_mask or output_path(args.out_dir, f"{prefix}_idx_facc.tif"),
+        width_path=args.width or output_path(args.out_dir, f"{prefix}_Wshed_Properties_River_Width_m.tif"),
+        depth_path=args.depth or output_path(args.out_dir, f"{prefix}_Wshed_Properties_River_Depth_m.tif"),
         output_dem_name=args.output_dem_name,
-        output_width_name=args.output_width_name,
-        output_depth_name=args.output_depth_name,
+        output_width_name=args.output_width_name or f"{prefix}_River_Width_river_cells_m.tif",
+        output_depth_name=args.output_depth_name or f"{prefix}_River_Depth_river_cells_m.tif",
         overwrite=args.overwrite,
     )
     print(json.dumps(summary, indent=2))

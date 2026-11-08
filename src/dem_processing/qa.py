@@ -106,12 +106,21 @@ def raster_stats(path: Path, positive_only: bool = False) -> Dict[str, Any]:
     }
 
 
-def d4_connectivity_stats(mask_path: Path) -> Dict[str, Any]:
+def river_prefix(out_dir: Path) -> str:
+    """Return "D8_" when the run traced a D8 river network, else "D4_"."""
+    d8_summary = output_path(Path(out_dir), "D8_HydroPol2D_creek_reduction_summary.csv")
+    return "D8_" if d8_summary.exists() else "D4_"
+
+
+def d4_connectivity_stats(mask_path: Path, connectivity: str = "d4") -> Dict[str, Any]:
     if not mask_path.exists():
         return {"exists": False}
     with rasterio.open(mask_path) as src:
         mask = src.read(1, masked=True).filled(0) > 0
-    structure = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8)
+    if connectivity == "d8":
+        structure = np.ones((3, 3), dtype=np.uint8)
+    else:
+        structure = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8)
     labels, n_components = ndimage.label(mask, structure=structure)
     sizes = np.bincount(labels.ravel())[1:]
     if sizes.size:
@@ -142,12 +151,13 @@ def write_run_manifest(
     """Write a reproducibility manifest for the current run."""
     out_dir = Path(out_dir)
     if key_outputs is None:
+        prefix = river_prefix(out_dir)
         key_outputs = [
             output_path(out_dir, "DEM_hydraulic_conditioned.tif"),
             output_path(out_dir, "DEM_modification_final_minus_cleaned.tif"),
-            output_path(out_dir, "D4_idx_facc.tif"),
-            output_path(out_dir, "D4_H_abg_m.tif"),
-            output_path(out_dir, "D4_HydroPol2D_creek_reduction_summary.csv"),
+            output_path(out_dir, f"{prefix}idx_facc.tif"),
+            output_path(out_dir, f"{prefix}H_abg_m.tif"),
+            output_path(out_dir, f"{prefix}HydroPol2D_creek_reduction_summary.csv"),
             output_path(out_dir, "modification_summary.csv"),
         ]
 
@@ -176,11 +186,14 @@ def build_qa_scorecard(out_dir: Path, thresholds: Optional[Mapping[str, float]] 
     out_dir = Path(out_dir)
     thresholds = dict(thresholds or {})
 
+    prefix = river_prefix(out_dir)
     mod = dataframe_first_row(output_path(out_dir, "modification_summary.csv"))
-    creek = dataframe_first_row(output_path(out_dir, "D4_HydroPol2D_creek_reduction_summary.csv"))
+    creek = dataframe_first_row(output_path(out_dir, f"{prefix}HydroPol2D_creek_reduction_summary.csv"))
     corridor = dataframe_first_row(output_path(out_dir, "D4_external_river_profile_QA_summary.csv"))
-    conn = d4_connectivity_stats(output_path(out_dir, "D4_idx_facc.tif"))
-    habg = raster_stats(output_path(out_dir, "D4_H_abg_m.tif"), positive_only=True)
+    conn = d4_connectivity_stats(
+        output_path(out_dir, f"{prefix}idx_facc.tif"), connectivity=prefix[:2].lower()
+    )
+    habg = raster_stats(output_path(out_dir, f"{prefix}H_abg_m.tif"), positive_only=True)
 
     checks = []
 
