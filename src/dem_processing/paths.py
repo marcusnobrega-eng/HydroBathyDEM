@@ -35,6 +35,7 @@ REPORT_FILES = {
     "D4_HydroPol2D_creek_reduction_summary.csv",
     "D4_external_river_profile_QA_summary.csv",
     "D4_river_connectivity_summary.csv",
+    "D8_HydroPol2D_creek_reduction_summary.csv",
     "run_manifest.json",
     "qa_scorecard.csv",
     "qa_scorecard.json",
@@ -50,6 +51,8 @@ def output_theme(filename: str) -> str:
         return "reports"
     if name.startswith("D4_"):
         return "d4"
+    if name.startswith("D8_"):
+        return "d8"
     if name.startswith("DEM_"):
         return "dem"
     if (
@@ -76,5 +79,5 @@ def output_path(out_dir: Path | str, filename: str) -> Path:
 def ensure_output_layout(out_dir: Path | str) -> None:
     """Create the standard themed output folders."""
     root = Path(out_dir).expanduser().resolve()
-    for theme in ["dem", "d4", "diagnostics", "reports", "misc"]:
+    for theme in ["dem", "d4", "d8", "diagnostics", "reports", "misc"]:
         (root / theme).mkdir(parents=True, exist_ok=True)

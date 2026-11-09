@@ -7,7 +7,7 @@ one of them fails the design is wrong, not the mesh.
 from __future__ import annotations
 
 import numpy as np
-from shapely import MultiPoint, intersection, unary_union, voronoi_polygons
+from shapely import MultiPoint, intersection, make_valid, unary_union, voronoi_polygons
 from shapely.geometry import LineString, Point, box
 
 from dem_processing.hecras_mesh import (
@@ -23,7 +23,9 @@ DOMAIN = box(-200.0, -900.0, 2200.0, 900.0)
 
 def _cells(points: np.ndarray, domain=DOMAIN) -> list:
     diagram = voronoi_polygons(MultiPoint(points), extend_to=domain)
-    cells = [intersection(item, domain) for item in diagram.geoms]
+    # GEOS 3.14 (shapely 2.2) can return a cell with a zero-length edge, which the overlay
+    # rejects as a non-noded intersection; the repaired cell has the same area.
+    cells = [intersection(make_valid(item), domain) for item in diagram.geoms]
     return [item for item in cells if item.geom_type == "Polygon" and item.area > 1e-9]
 
 
