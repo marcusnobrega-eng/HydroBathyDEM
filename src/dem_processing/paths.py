@@ -41,6 +41,7 @@ REPORT_FILES = {
     "qa_scorecard.json",
     "qa_scorecard.md",
     "geometry_only_export_summary.json",
+    "D4_surface_fill_summary.json",
 }
 
 

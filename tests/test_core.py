@@ -22,6 +22,7 @@ from dem_processing.condition_dem import (
     compute_equivalent_H_abg,
     condition_d4_surface_pits,
     enforce_downstream_channel_surface,
+    fill_d4_surface_pits,
 )
 from dem_processing.fabdem import choose_target_crs, parse_resolution
 from dem_processing.geometry_export import export_geometry_only_products
@@ -261,6 +262,120 @@ class CoreToolboxTests(unittest.TestCase):
             self.assertTrue(np.isnan(width[0, 0]))
             self.assertEqual(float(width[0, 1]), 50.0)
             self.assertTrue(np.isnan(width[1, 1]))
+
+    def test_geometry_export_writes_the_d4_filled_dem(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            out_dir = Path(td)
+            profile = {
+                "driver": "GTiff", "height": 5, "width": 5, "count": 1, "dtype": "float32",
+                "crs": "EPSG:32643", "transform": Affine.translation(0, 0) * Affine.scale(1000, -1000),
+                "nodata": -9999.0,
+            }
+
+            def write(name: str, arr: np.ndarray) -> None:
+                path = output_path(out_dir, name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with rasterio.open(path, "w", **profile) as dst:
+                    dst.write(arr.astype("float32"), 1)
+
+            write("DEM_hydrologically_conditioned_pre_bathymetry.tif", _diagonal_valley_dem())
+            river = np.zeros((5, 5), dtype="float32")
+            river[2, 2] = 1.0  # the middle valley cell leaves by a D8 link
+            write("D8_idx_facc.tif", river)
+            write("D8_Wshed_Properties_River_Width_m.tif", np.full((5, 5), 50.0))
+            write("D8_Wshed_Properties_River_Depth_m.tif", np.full((5, 5), 2.0))
+
+            summary = export_geometry_only_products(
+                out_dir,
+                mask_path=output_path(out_dir, "D8_idx_facc.tif"),
+                width_path=output_path(out_dir, "D8_Wshed_Properties_River_Width_m.tif"),
+                depth_path=output_path(out_dir, "D8_Wshed_Properties_River_Depth_m.tif"),
+                overwrite=True,
+                fill_d4_surface=True,
+                fill_outlets="rivers",
+            )
+
+            fill = summary["d4_surface_fill"]
+            self.assertTrue(Path(fill["filled_dem"]).name == "DEM_conditioned_no_bathymetry_D4_filled.tif")
+            self.assertTrue(output_path(out_dir, "D4_surface_fill_raise_m.tif").exists())
+            self.assertTrue(output_path(out_dir, "D4_surface_fill_summary.json").exists())
+            self.assertEqual(fill["pits_left_deeper_than_1cm"], 0)
+            with rasterio.open(fill["filled_dem"]) as src:
+                filled = src.read(1)
+            self.assertEqual(float(filled[2, 2]), 2.0)  # an outlet keeps its elevation
+            self.assertAlmostEqual(float(filled[3, 3]), 6.0, places=4)
+            self.assertAlmostEqual(float(filled[1, 1]), 8.0, places=4)
+            with rasterio.open(summary["no_bathymetry_dem"]) as src:
+                self.assertEqual(float(src.read(1)[2, 2]), 2.0)  # the unfilled export stays
+
+    def test_d4_surface_fill_raises_a_diagonal_valley_to_its_spill_level(self) -> None:
+        dem = _diagonal_valley_dem()
+        profile = {"transform": Affine.translation(0, 0) * Affine.scale(1000, -1000), "nodata": -9999.0}
+        filled, raised, summary = fill_d4_surface_pits(dem, profile)
+
+        # Each valley cell touches the next only at a corner, so each is a D4 pit. (3, 3) spills
+        # over its east neighbour (3, 4) at 6 m; (2, 2) and (1, 1) spill through (2, 1) at 8 m.
+        self.assertAlmostEqual(float(filled[3, 3]), 6.0, places=4)
+        self.assertAlmostEqual(float(filled[2, 2]), 8.0, places=4)
+        self.assertAlmostEqual(float(filled[1, 1]), 8.0, places=4)
+        self.assertEqual(float(filled[2, 1]), 8.0)  # the sill itself is not raised
+        self.assertTrue(np.all(filled >= dem))  # nothing is lowered
+        self.assertAlmostEqual(float(raised[2, 2]), 6.0, places=4)
+        self.assertEqual(summary["cells_raised_more_than_1cm"], 3)
+        self.assertEqual(summary["pits_left_deeper_than_1cm"], 0)
+        self.assertAlmostEqual(summary["filled_volume_m3"], (5.0 + 6.0 + 5.0) * 1e6, delta=100.0)
+
+    def test_d4_surface_fill_keeps_outlet_cells_and_drains_into_them(self) -> None:
+        dem = _diagonal_valley_dem()
+        profile = {"transform": Affine.translation(0, 0) * Affine.scale(1000, -1000), "nodata": -9999.0}
+        sinks = np.zeros(dem.shape, dtype=bool)
+        sinks[[1, 2, 3], [1, 2, 3]] = True  # the valley is a river sink
+        filled, raised, summary = fill_d4_surface_pits(dem, profile, outlet_mask=sinks)
+        np.testing.assert_array_equal(filled[sinks], dem[sinks])
+        self.assertLess(float(raised.max()), 1e-4)  # only the flood's 1e-6 m steps on flats
+        self.assertEqual(summary["outlet_mask_cells"], 3)
+
+    def test_d4_surface_fill_matches_the_spill_levels_of_a_random_dem(self) -> None:
+        rng = np.random.default_rng(7)
+        dem = rng.uniform(0.0, 50.0, size=(14, 17)).astype("float32")
+        dem[rng.random(dem.shape) < 0.05] = -9999.0  # nodata holes are outlets for their neighbours
+        outlets = rng.random(dem.shape) < 0.02
+        profile = {"transform": Affine.translation(0, 0) * Affine.scale(1, -1), "nodata": -9999.0}
+        filled, _, summary = fill_d4_surface_pits(dem, profile, outlet_mask=outlets)
+
+        # Reference: the spill level of a cell is the lowest, over all D4 paths to an outlet,
+        # of the highest elevation on the path (a minimax path), found by relaxation.
+        valid = dem != -9999.0
+        padded = np.pad(valid, 1, constant_values=False)
+        edge = valid & ~(padded[:-2, 1:-1] & padded[2:, 1:-1] & padded[1:-1, :-2] & padded[1:-1, 2:])
+        level = np.where(valid & (edge | outlets), dem.astype("float64"), np.inf)
+        level[~valid] = np.inf
+        while True:
+            padded_level = np.pad(level, 1, constant_values=np.inf)
+            lowest = np.minimum.reduce([
+                padded_level[:-2, 1:-1], padded_level[2:, 1:-1], padded_level[1:-1, :-2], padded_level[1:-1, 2:],
+            ])
+            updated = np.where(valid, np.minimum(level, np.maximum(dem, lowest)), np.inf)
+            if np.array_equal(updated, level):
+                break
+            level = updated
+        np.testing.assert_allclose(filled[valid], level[valid], atol=1e-3)
+        np.testing.assert_array_equal(filled[~valid], dem[~valid])
+        self.assertEqual(summary["pits_left_deeper_than_1cm"], 0)
+
+
+def _diagonal_valley_dem() -> np.ndarray:
+    """A 5x5 ridge at 10 m with a valley that runs diagonally: (1, 1) 3 m, (2, 2) 2 m, (3, 3) 1 m.
+
+    In D8 the valley drains to the corner (4, 4) at 0 m; in D4 each valley cell is a closed pit.
+    Sills: (3, 4) at 6 m on the east edge; (2, 1) at 8 m, next to the west-edge cell (2, 0) at 7 m.
+    """
+    dem = np.full((5, 5), 10.0, dtype="float32")
+    dem[1, 1], dem[2, 2], dem[3, 3] = 3.0, 2.0, 1.0
+    dem[4, 4] = 0.0
+    dem[3, 4] = 6.0
+    dem[2, 1], dem[2, 0] = 8.0, 7.0
+    return dem
 
 
 if __name__ == "__main__":

@@ -108,8 +108,19 @@ def export_geometry_only_products(
     output_width_name: str = "D4_River_Width_river_cells_m.tif",
     output_depth_name: str = "D4_River_Depth_river_cells_m.tif",
     overwrite: bool = False,
+    fill_d4_surface: bool = False,
+    fill_outlets: str = "edge",
 ) -> dict:
-    """Export the conditioned DEM before bathymetry and river-only width/depth rasters."""
+    """Export the conditioned DEM before bathymetry and river-only width/depth rasters.
+
+    With ``fill_d4_surface`` the export also writes ``<DEM name>_D4_filled.tif``: the
+    D4 closed depressions filled to their spill level (``fill_d4_surface_pits``).
+    ``fill_outlets`` "rivers" makes the river-mask cells outlets, for models that
+    route the rivers on another path (D8 links, river sinks); "edge" uses the
+    domain edge only.
+    """
+    if fill_outlets not in {"edge", "rivers"}:
+        raise ValueError("fill_outlets must be edge or rivers.")
 
     out_dir = Path(out_dir)
     ensure_output_layout(out_dir)
@@ -138,6 +149,15 @@ def export_geometry_only_products(
         "river_width": width_summary,
         "river_depth": depth_summary,
     }
+    if fill_d4_surface:
+        from .condition_dem import fill_d4_surface_pits_file
+
+        _, summary["d4_surface_fill"] = fill_d4_surface_pits_file(
+            no_bathy_dem,
+            out_dir,
+            f"{Path(output_dem_name).stem}_D4_filled.tif",
+            river_mask if fill_outlets == "rivers" else None,
+        )
     summary_path = output_path(out_dir, "geometry_only_export_summary.json")
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -167,6 +187,17 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="River network of the conditioning run: picks the D4_ or D8_ mask, width and depth.",
     )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing export rasters.")
+    parser.add_argument(
+        "--fill-d4-surface",
+        action="store_true",
+        help="Also write <DEM name>_D4_filled.tif: every D4 closed depression filled to its spill level.",
+    )
+    parser.add_argument(
+        "--fill-outlets",
+        choices=["edge", "rivers"],
+        default="edge",
+        help="Outlets of the D4 fill: the domain edge, or also the river-mask cells (D8 links, river sinks).",
+    )
     return parser.parse_args(argv)
 
 
@@ -183,6 +214,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         output_width_name=args.output_width_name or f"{prefix}_River_Width_river_cells_m.tif",
         output_depth_name=args.output_depth_name or f"{prefix}_River_Depth_river_cells_m.tif",
         overwrite=args.overwrite,
+        fill_d4_surface=args.fill_d4_surface,
+        fill_outlets=args.fill_outlets,
     )
     print(json.dumps(summary, indent=2))
 
