@@ -335,6 +335,24 @@ class CoreToolboxTests(unittest.TestCase):
         self.assertLess(float(raised.max()), 1e-4)  # only the flood's 1e-6 m steps on flats
         self.assertEqual(summary["outlet_mask_cells"], 3)
 
+    def test_d4_surface_fill_drains_into_river_sinks_from_the_cell_s_own_level(self) -> None:
+        dem = np.full((5, 5), 10.0, dtype="float32")
+        dem[2, 2] = 1.0  # a hollow beside a river cell that sits higher, at 5 m
+        dem[2, 3] = 5.0
+        river = np.zeros(dem.shape, dtype=bool)
+        river[2, 3] = True
+        profile = {"transform": Affine.translation(0, 0) * Affine.scale(1000, -1000), "nodata": -9999.0}
+
+        # A D8 river link stays in the 2D grid: the hollow spills over its bank at 5 m.
+        over_link, _, _ = fill_d4_surface_pits(dem, profile, outlet_mask=river)
+        self.assertAlmostEqual(float(over_link[2, 2]), 5.0, places=4)
+        # A river sink leaves the grid: the hollow drains into it from 1 m, as over the edge.
+        into_sink, raised, summary = fill_d4_surface_pits(dem, profile, sink_mask=river)
+        self.assertEqual(float(into_sink[2, 2]), 1.0)
+        self.assertEqual(float(into_sink[2, 3]), 5.0)
+        self.assertEqual(summary["sink_mask_cells"], 1)
+        self.assertEqual(summary["pits_left_deeper_than_1cm"], 0)
+
     def test_d4_surface_fill_matches_the_spill_levels_of_a_random_dem(self) -> None:
         rng = np.random.default_rng(7)
         dem = rng.uniform(0.0, 50.0, size=(14, 17)).astype("float32")

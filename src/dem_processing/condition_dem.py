@@ -2327,6 +2327,7 @@ def fill_d4_surface_pits(
     dem: np.ndarray,
     profile: dict,
     outlet_mask: Optional[np.ndarray] = None,
+    sink_mask: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray, dict]:
     """Fill every D4 closed depression to its spill level; never lower terrain.
 
@@ -2336,9 +2337,16 @@ def fill_d4_surface_pits(
     trap rain. Each pit is raised to the lowest D4 sill on its way out, plus
     the priority flood's minimum increment (1e-6 m a cell), so flats stay flat.
 
-    Outlets are the cells on the domain edge or next to nodata, plus
-    ``outlet_mask``: cells whose water leaves by another path than the D4
-    faces (D8 river links, river sinks). Outlet cells keep their elevation.
+    Outlets are the cells on the domain edge or next to nodata, plus two kinds
+    of river cell, which both keep their elevation:
+
+    - ``outlet_mask``: cells that stay in the 2D grid but pass their water on
+      by another path (D8 river links). A neighbour spills over them, so one
+      lower than the river cell is raised to the river cell's level.
+    - ``sink_mask``: cells that leave the 2D grid (river sinks). A neighbour
+      drains into a sink from its own elevation, as over the domain edge, so
+      the flood treats sinks as nodata.
+
     Returns the filled DEM (float32), the raise (m) and a summary.
     """
     nodata = profile.get("nodata", -9999.0)
@@ -2346,15 +2354,22 @@ def fill_d4_surface_pits(
     if not np.any(valid):
         raise ValueError("D4 surface filling requires at least one valid DEM cell.")
     outlets = None if outlet_mask is None else np.asarray(outlet_mask, dtype=bool) & valid
+    sinks = np.zeros(dem.shape, dtype=bool) if sink_mask is None else np.asarray(sink_mask, dtype=bool) & valid
+    routed = valid & ~sinks
+    if not np.any(routed):
+        raise ValueError("D4 surface filling found no cell outside the sink mask.")
 
-    surface, _, _ = _d4_priority_flood(dem, nodata, 0.0, outlets)
+    def flood(surface: np.ndarray) -> np.ndarray:
+        level, _, _ = _d4_priority_flood(np.where(sinks, np.nan, surface).astype("float32"), nodata, 0.0, outlets)
+        return level
+
     filled = dem.astype("float64", copy=True)
-    filled[valid] = np.maximum(surface[valid], filled[valid])
+    filled[routed] = np.maximum(flood(dem)[routed], filled[routed])
     filled = filled.astype("float32")
     raised = np.zeros(dem.shape, dtype="float32")
-    raised[valid] = (filled[valid].astype("float64") - dem[valid].astype("float64")).astype("float32")
+    raised[routed] = (filled[routed].astype("float64") - dem[routed].astype("float64")).astype("float32")
     # A second flood finds nothing left to raise (1 cm allows for float32 flats).
-    left, _, _ = _d4_priority_flood(filled, nodata, 0.0, outlets)
+    left = flood(filled)
 
     changed = raised > 0.01
     transform = profile.get("transform")
@@ -2362,14 +2377,25 @@ def fill_d4_surface_pits(
     summary = {
         "valid_cells": int(valid.sum()),
         "outlet_mask_cells": int(outlets.sum()) if outlets is not None else 0,
+        "sink_mask_cells": int(sinks.sum()),
         "cells_raised_more_than_1cm": int(changed.sum()),
         "raise_mean_m": float(raised[changed].mean()) if changed.any() else 0.0,
         "raise_p95_m": float(np.percentile(raised[changed], 95)) if changed.any() else 0.0,
         "raise_max_m": float(raised.max()),
-        "filled_volume_m3": float(raised[valid].astype("float64").sum() * cell_area_m2),
-        "pits_left_deeper_than_1cm": int(np.count_nonzero(left[valid] - filled[valid] > 0.01)),
+        "filled_volume_m3": float(raised[routed].astype("float64").sum() * cell_area_m2),
+        "pits_left_deeper_than_1cm": int(np.count_nonzero(left[routed] - filled[routed] > 0.01)),
     }
     return filled, raised, summary
+
+
+def _read_mask_on_grid(path: Optional[Path], dem: np.ndarray, profile: dict) -> Optional[np.ndarray]:
+    """Cells with a positive value in a raster on the DEM grid, or None without a path."""
+    if path is None:
+        return None
+    with rasterio.open(path) as source:
+        if (source.shape, source.transform) != (dem.shape, profile["transform"]):
+            raise ValueError(f"Mask {path} is not on the DEM grid.")
+        return source.read(1, masked=True).filled(0) > 0
 
 
 def fill_d4_surface_pits_file(
@@ -2377,27 +2403,26 @@ def fill_d4_surface_pits_file(
     out_dir: Path,
     output_name: str,
     outlet_mask_path: Optional[Path] = None,
+    sink_mask_path: Optional[Path] = None,
 ) -> Tuple[Path, dict]:
     """Fill the D4 pits of one DEM file and write the filled DEM, the raise and a summary.
 
-    ``outlet_mask_path``: a raster on the DEM grid; cells with a positive value
-    are outlets (see ``fill_d4_surface_pits``).
+    ``outlet_mask_path`` and ``sink_mask_path``: rasters on the DEM grid; cells
+    with a positive value are river outlets or river sinks (see
+    ``fill_d4_surface_pits``).
     """
     print_header("D4 surface-pit filling")
     dem, profile = read_raster(Path(dem_in))
-    outlet_mask = None
-    if outlet_mask_path is not None:
-        with rasterio.open(outlet_mask_path) as source:
-            if (source.shape, source.transform) != (dem.shape, profile["transform"]):
-                raise ValueError(f"D4 outlet mask {outlet_mask_path} is not on the DEM grid.")
-            outlet_mask = source.read(1, masked=True).filled(0) > 0
-    filled, raised, summary = fill_d4_surface_pits(dem, profile, outlet_mask)
+    outlet_mask = _read_mask_on_grid(outlet_mask_path, dem, profile)
+    sink_mask = _read_mask_on_grid(sink_mask_path, dem, profile)
+    filled, raised, summary = fill_d4_surface_pits(dem, profile, outlet_mask, sink_mask)
     output = output_path(out_dir, output_name)
     write_raster(output, filled, profile, nodata=profile.get("nodata", -9999.0))
     write_raster(output_path(out_dir, "D4_surface_fill_raise_m.tif"), raised, profile, nodata=-9999.0)
     summary = {
         "dem": str(dem_in),
         "outlet_mask": str(outlet_mask_path) if outlet_mask_path is not None else None,
+        "sink_mask": str(sink_mask_path) if sink_mask_path is not None else None,
         "filled_dem": str(output),
         **summary,
     }

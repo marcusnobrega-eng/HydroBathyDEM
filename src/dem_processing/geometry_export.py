@@ -116,11 +116,11 @@ def export_geometry_only_products(
     With ``fill_d4_surface`` the export also writes ``<DEM name>_D4_filled.tif``: the
     D4 closed depressions filled to their spill level (``fill_d4_surface_pits``).
     ``fill_outlets`` "rivers" makes the river-mask cells outlets, for models that
-    route the rivers on another path (D8 links, river sinks); "edge" uses the
-    domain edge only.
+    route the rivers by D8 links; "river-sinks" makes them sinks that their
+    neighbours drain into freely; "edge" uses the domain edge only.
     """
-    if fill_outlets not in {"edge", "rivers"}:
-        raise ValueError("fill_outlets must be edge or rivers.")
+    if fill_outlets not in {"edge", "rivers", "river-sinks"}:
+        raise ValueError("fill_outlets must be edge, rivers, or river-sinks.")
 
     out_dir = Path(out_dir)
     ensure_output_layout(out_dir)
@@ -157,6 +157,7 @@ def export_geometry_only_products(
             out_dir,
             f"{Path(output_dem_name).stem}_D4_filled.tif",
             river_mask if fill_outlets == "rivers" else None,
+            river_mask if fill_outlets == "river-sinks" else None,
         )
     summary_path = output_path(out_dir, "geometry_only_export_summary.json")
     summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,9 +195,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--fill-outlets",
-        choices=["edge", "rivers"],
+        choices=["edge", "rivers", "river-sinks"],
         default="edge",
-        help="Outlets of the D4 fill: the domain edge, or also the river-mask cells (D8 links, river sinks).",
+        help="Outlets of the D4 fill: the domain edge only, or also the river-mask cells as D8 river "
+        "links (rivers) or as sinks that leave the grid (river-sinks).",
     )
     return parser.parse_args(argv)
 
