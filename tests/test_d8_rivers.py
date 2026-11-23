@@ -15,6 +15,7 @@ from dem_processing.condition_dem import (
     compute_d4_flow_accumulation,
     compute_flow_accumulation,
     condition_d4_channel_bed,
+    net_entry_upstream_cells,
     read_entry_upstream_cells,
     receiver_link_length_m,
     receiver_to_d8_direction,
@@ -88,6 +89,42 @@ class D8RiverTests(unittest.TestCase):
             on_path[path] = True
             np.testing.assert_allclose(gained.ravel()[on_path], 1000.0)
             np.testing.assert_allclose(gained.ravel()[~on_path], 0.0)
+
+    def test_an_entry_below_another_adds_only_what_does_not_arrive_already(self) -> None:
+        """A river that leaves the domain but stays on the DEM and comes back (the Gandak
+        on the Nepal border) crosses the edge twice; its area must count once."""
+        dem = _diagonal_valley(7)
+        plain, receiver = compute_flow_accumulation(dem, PROFILE, -9999.0, connectivity="d8")
+        cell_km2 = 1e-4  # 10 m cells
+        # Path of (0, 0): the diagonal. The second crossing is 3 cells down it.
+        down = (3, 3)
+        first_area, second_area = 0.5, 0.5 + 0.02  # km2: the river gained 0.02 km2 outside
+        entries = pd.DataFrame({
+            "entry": ["first", "second", "side"],
+            "row": [0, down[0], 0],
+            "column": [0, down[1], 6],
+            "upstream_area_km2": [first_area, second_area, 0.3],
+        })
+        extra, used = net_entry_upstream_cells(entries, plain, receiver, cell_km2)
+        used = used.set_index("entry")
+        self.assertAlmostEqual(float(used.loc["first", "added_km2"]), first_area - plain[0, 0] * cell_km2)
+        arriving = plain[down] * cell_km2 + float(used.loc["first", "added_km2"])
+        self.assertAlmostEqual(float(used.loc["second", "arriving_km2"]), arriving)
+        self.assertAlmostEqual(float(used.loc["second", "added_km2"]), second_area - arriving)
+        self.assertAlmostEqual(float(used.loc["side", "added_km2"]), 0.3 - plain[0, 6] * cell_km2)
+        # Below the second crossing the river holds its true area, not the two summed.
+        boosted, _ = compute_flow_accumulation(dem, PROFILE, -9999.0, connectivity="d8", extra_cells=extra)
+        self.assertAlmostEqual(float(boosted[down]) * cell_km2, second_area, places=9)
+
+    def test_two_entries_on_one_cell_count_the_river_once(self) -> None:
+        dem = _diagonal_valley()
+        plain, receiver = compute_flow_accumulation(dem, PROFILE, -9999.0, connectivity="d8")
+        entries = pd.DataFrame({
+            "entry": ["a", "b"], "row": [0, 0], "column": [0, 0], "upstream_area_km2": [0.4, 0.5],
+        })
+        extra, used = net_entry_upstream_cells(entries, plain, receiver, 1e-4)
+        self.assertAlmostEqual(float(extra[0, 0]) * 1e-4, 0.5 - plain[0, 0] * 1e-4)
+        self.assertEqual(float(used.set_index("entry").loc["a", "added_km2"]), 0.0)
 
     def test_entry_table_maps_coordinates_to_cells(self) -> None:
         valid = np.ones((5, 5), dtype=bool)

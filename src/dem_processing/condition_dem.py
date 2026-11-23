@@ -468,9 +468,13 @@ Rivers entering the DEM from outside:
 A DEM cut to a model domain does not hold the upstream basin of a river that
 enters it, so that river starts with almost no area and a small channel. The
 CSV gives one row per entry, `x`, `y` (the entry cell centre, DEM CRS) and
-`upstream_area_km2` (the area outside the DEM); the area is added at the entry
-cell and carried downstream, in D4 and D8, before width and depth are
-computed. `D4_entry_upstream_areas_used.csv` (or `D8_`) records the cells.
+`upstream_area_km2` (the river's upstream area at the entry, e.g. HydroRIVERS
+UPLAND_SKM). Only the part of it that the DEM does not already route to the
+entry cell is added there and carried downstream, in D4 and D8, before width
+and depth are computed: a river that leaves the domain but stays on the DEM and
+comes back, or an entry downstream of another entry of the same river, is not
+counted twice. `D4_entry_upstream_areas_used.csv` (or `D8_`) records the cells,
+the area already arriving there and the area added.
 
 
 ### Stage 4 — Optional vector stream burning
@@ -1577,6 +1581,52 @@ def read_entry_upstream_cells(path: str, profile: dict, valid: np.ndarray) -> Tu
     return extra, pd.DataFrame(records)
 
 
+def net_entry_upstream_cells(
+    entries: pd.DataFrame,
+    acc_cells: np.ndarray,
+    receiver: np.ndarray,
+    cell_area_km2: float,
+) -> Tuple[np.ndarray, pd.DataFrame]:
+    """Add at each entry only the area the DEM does not already route to it.
+
+    ``entries`` (from :func:`read_entry_upstream_cells`) gives each entry's whole
+    upstream area. ``acc_cells`` and ``receiver`` are the accumulation without any
+    entry area. Entries are taken from upstream to downstream (by ``acc_cells`` at
+    their cell; along one path it grows downstream); the area already arriving at
+    an entry is the DEM's own accumulation plus what entries upstream of it added
+    along their downstream paths. Returns the extra cells per grid cell and the
+    entries with ``arriving_km2`` and ``added_km2``.
+    """
+    flat_acc = np.asarray(acc_cells, dtype="float64").ravel()
+    flat_receiver = np.asarray(receiver, dtype=np.int64).ravel()
+    rows, cols = np.asarray(acc_cells).shape
+    along = np.zeros(flat_acc.size, dtype="float64")
+    extra = np.zeros(flat_acc.size, dtype="float64")
+    table = entries.copy()
+    cells = (table["row"].to_numpy(np.int64) * cols + table["column"].to_numpy(np.int64))
+    order = np.lexsort((-table["upstream_area_km2"].to_numpy(float), flat_acc[cells]))
+    arriving = np.zeros(len(table))
+    added = np.zeros(len(table))
+    for k in order:
+        cell = int(cells[k])
+        given = float(table["upstream_area_km2"].iloc[k]) / cell_area_km2
+        arriving[k] = flat_acc[cell] + along[cell]
+        add = max(given - arriving[k], 0.0)
+        added[k] = add
+        if add <= 0.0:
+            continue
+        extra[cell] += add
+        seen = 0
+        while cell >= 0 and seen <= flat_acc.size:
+            along[cell] += add
+            cell = int(flat_receiver[cell])
+            seen += 1
+    table["arriving_km2"] = arriving * cell_area_km2
+    table["added_km2"] = added * cell_area_km2
+    table["added_cells"] = added
+    return extra.reshape(rows, cols), table
+
+
 def _d4_line_cells(coords: np.ndarray, transform: Affine, shape: tuple[int, int]) -> list[int]:
     """Snap a line to an ordered, cardinal-neighbour sequence of grid cells."""
     rows, cols = shape
@@ -2664,11 +2714,22 @@ def automatic_d4_hydraulic_channel_carving(
     else:
         extra_cells = None
         if cfg.entry_upstream_areas:
-            extra_cells, entries = read_entry_upstream_cells(
+            _, entries = read_entry_upstream_cells(
                 cfg.entry_upstream_areas, profile, valid_mask(dem_route, nodata)
             )
+            plain_cells, plain_receiver = compute_flow_accumulation(
+                dem_route, profile, nodata, connectivity=connectivity
+            )
+            extra_cells, entries = net_entry_upstream_cells(
+                entries, plain_cells, plain_receiver, cell_area_m2 / 1_000_000.0
+            )
             entries.to_csv(output_path(out_dir, f"{prefix}entry_upstream_areas_used.csv"), index=False)
-            print(f"[INFO] river entries with outside upstream area = {len(entries)}")
+            print(
+                f"[INFO] river entries with outside upstream area = {len(entries)}; "
+                f"area given {entries['upstream_area_km2'].sum():,.0f} km2, "
+                f"already routed there {(entries['upstream_area_km2'] - entries['added_km2']).sum():,.0f} km2, "
+                f"added {entries['added_km2'].sum():,.0f} km2"
+            )
         acc_cells, receiver = compute_flow_accumulation(
             dem_route, profile, nodata, connectivity=connectivity, extra_cells=extra_cells
         )
